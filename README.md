@@ -108,8 +108,7 @@ You can fine-tune the search behavior via the **Manage Tools** popup. Each optio
 This project is a standalone integration that builds upon the incredible work of the following developers:
 
 - **[bmen25124](https://github.com/bmen25124)**: For the professional UI architecture and template patterns used in the original `SillyTavern-MCP-Client`.
-- **[mrkrsl](https://github.com/mrkrsl)**: For the original core logic of `web-search-mcp` which pioneered local search capabilities.
-- **[OllyJohnston](https://github.com/OllyJohnston)**: For the enhanced `web-search-mcp` fork which provided the foundation for the multi-engine and Playwright orchestration used here.
+- **[mrkrsl](https://github.com/mrkrsl)**: For the original core logic of `web-search-mcp` which pioneered local search capabilities. This project's search engine was built upon the refined [OllyJohnston fork](https://github.com/OllyJohnston/web-search-mcp).
 
 Special thanks to the SillyTavern community for their ongoing support and inspiration.
 
