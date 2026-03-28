@@ -1,0 +1,68 @@
+<div class="mcp-tools-content">
+    <div class="mcp-tools-header">
+        <h3>Local Search Tools</h3>
+        <div class="header-buttons">
+            <button id="open-search-settings" class="menu_button"><i class="fa-solid fa-cog"></i> Settings</button>
+            <button id="reload-all-tools" class="menu_button"><i class="fa-solid fa-sync-alt"></i> Refresh</button>
+        </div>
+    </div>
+
+    <!-- Search Configuration -->
+    <div id="search-config-form" class="add-server-form" style="display: none">
+        <h4>Search Configuration</h4>
+        <div class="form-group">
+            <label>Result Limit</label>
+            <div class="flex-container" style="align-items: center; gap: 10px;">
+                <input type="range" id="config-num-results" min="1" max="20" step="1" value="10" style="flex: 1;">
+                <span id="config-num-results-counter">10</span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Max Content Length (chars)</label>
+            <div class="flex-container" style="align-items: center; gap: 10px;">
+                <input type="range" id="config-max-content" min="1000" max="50000" step="1000" value="15000" style="flex: 1;">
+                <span id="config-max-content-counter">15000</span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Preferred Engine</label>
+            <select id="config-engine" class="text_pole">
+                <option value="bing">Bing (Direct)</option>
+                <option value="brave">Brave (Privacy Focus)</option>
+                <option value="duckduckgo">DuckDuckGo (Fallback)</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="checkbox_label">
+                <input type="checkbox" id="config-multi-engine">
+                <span>Force Multi-Engine Search</span>
+            </label>
+        </div>
+        <div class="form-actions">
+            <button id="save-config" class="menu_button"><i class="fa-solid fa-check"></i> Save</button>
+            <button id="cancel-config" class="menu_button"><i class="fa-solid fa-times"></i> Close</button>
+        </div>
+    </div>
+
+    <div id="mcp-tools-list" class="mcp-tools-list">
+        <!-- Tools will be populated here -->
+    </div>
+
+    <template id="server-section-template">
+        <div class="server-tools-section">
+            <div class="server-header clickable">
+                <div class="header-content">
+                    <i class="fa-solid fa-chevron-right"></i>
+                    <h4></h4>
+                </div>
+                <label class="checkbox_label">
+                    <input type="checkbox" class="server-toggle" />
+                    <span>Connected</span>
+                </label>
+            </div>
+            <div class="tools-list collapsed">
+                <!-- Tools will be populated here -->
+            </div>
+        </div>
+    </template>
+</div>

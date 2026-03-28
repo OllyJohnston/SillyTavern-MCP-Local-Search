@@ -1,0 +1,12 @@
+{
+  "display_name": "MCP Local Search",
+  "loading_order": 1,
+  "requires": [],
+  "optional": [],
+  "dependencies": [],
+  "js": "index.js",
+  "css": "mcp-ls-style.css",
+  "author": "Olly Johnston",
+  "version": "1.0.0",
+  "homePage": ""
+}
