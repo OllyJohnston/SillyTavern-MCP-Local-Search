@@ -127,9 +127,12 @@ export class SearchEngine {
             throw new Error('Browser is not connected');
         let context;
         try {
+            const { viewport, hasTouch, isMobile } = getRandomViewportAndDevice();
             context = await browser.newContext({
                 userAgent: getRandomUserAgent(),
-                viewport: getRandomViewport(),
+                viewport,
+                hasTouch,
+                isMobile,
                 locale: 'en-US',
                 timezoneId: 'America/New_York',
             });
@@ -138,6 +141,11 @@ export class SearchEngine {
             console.log(`[SearchEngine] Browser navigating to Brave: ${searchUrl}`);
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
             await this.dismissConsent(page);
+            // Feature #4: Brave PoW challenge grace period
+            if ((await page.title()).includes('PoW Captcha')) {
+                console.log(`[SearchEngine] Brave: PoW Captcha detected, waiting 2s for challenge to resolve...`);
+                await page.waitForTimeout(2000);
+            }
             try {
                 await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
             }
@@ -203,15 +211,16 @@ export class SearchEngine {
         console.log(`[SearchEngine] BING: Creating browser context with enhanced fingerprinting...`);
         let context;
         try {
+            const { viewport, hasTouch, isMobile } = getRandomViewportAndDevice();
             context = await browser.newContext({
                 userAgent: getRandomUserAgent(),
-                viewport: getRandomViewport(),
+                viewport,
+                hasTouch,
+                isMobile,
                 locale: 'en-US',
                 timezoneId: 'America/New_York',
                 colorScheme: 'light',
-                deviceScaleFactor: 1,
-                hasTouch: false,
-                isMobile: false,
+                deviceScaleFactor: Math.random() > 0.5 ? 2 : 1, // Feature #3: Canvas/Hardware signature randomization
                 extraHTTPHeaders: {
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
@@ -275,6 +284,10 @@ export class SearchEngine {
             await page.waitForSelector('#sb_form_q', { timeout: 2000 });
             console.log(`[SearchEngine] BING: Search box found, filling with query: "${query}"`);
             await page.fill('#sb_form_q', query);
+            // Feature #1: Human-mimicry jitter before search button click
+            const jitter = Math.floor(Math.random() * 1500 + 500);
+            console.log(`[SearchEngine] BING: Mimicking human thought, waiting ${jitter}ms before clicking search...`);
+            await page.waitForTimeout(jitter);
             console.log(`[SearchEngine] BING: Clicking search button and waiting for navigation...`);
             await Promise.all([
                 page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: timeout }),
@@ -345,13 +358,24 @@ export class SearchEngine {
         return cvid;
     }
     async tryDuckDuckGoSearch(query, numResults, timeout) {
-        console.log(`[SearchEngine] Trying DuckDuckGo as fallback...`);
+        console.log(`[SearchEngine] Trying DuckDuckGo (HTML Lite) as fallback...`);
         try {
+            // Feature #2: Refined Axios headers to resolve 202 "Accepted" delays
+            const userAgent = getRandomUserAgent();
             const response = await axios.get('https://html.duckduckgo.com/html/', {
                 params: { q: query },
                 headers: {
-                    'User-Agent': getRandomUserAgent(), // Need to import or define this
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'User-Agent': userAgent,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Referer': 'https://duckduckgo.com/',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'same-origin',
                 },
                 timeout,
                 validateStatus: (status) => status < 400,
@@ -535,8 +559,8 @@ function getRandomUserAgent() {
     ];
     return ua[Math.floor(Math.random() * ua.length)];
 }
-// Finding #2: Randomize viewport dimensions to reduce fingerprint flagging
-function getRandomViewport() {
+// Finding #2: Randomize viewport and device attributes (Canvas/Hardware spoofing)
+function getRandomViewportAndDevice() {
     const viewports = [
         { width: 1920, height: 1080 },
         { width: 1366, height: 768 },
@@ -544,5 +568,8 @@ function getRandomViewport() {
         { width: 1440, height: 900 },
         { width: 1280, height: 720 },
     ];
-    return viewports[Math.floor(Math.random() * viewports.length)];
+    const viewport = viewports[Math.floor(Math.random() * viewports.length)];
+    const hasTouch = Math.random() > 0.8; // Some desktops have touch
+    const isMobile = false; // Stick to Desktop UAs for now to match the parsed logic
+    return { viewport, hasTouch, isMobile };
 }
