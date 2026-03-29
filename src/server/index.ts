@@ -107,5 +107,5 @@ export const info = {
   name: 'MCP Local Search',
   description: 'Native high-quality local search and scraping using Playwright.',
   author: 'Olly Johnston',
-  version: '1.2.1',
+  version: '1.2.3',
 };

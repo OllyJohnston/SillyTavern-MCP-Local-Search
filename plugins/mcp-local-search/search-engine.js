@@ -143,8 +143,13 @@ export class SearchEngine {
             await this.dismissConsent(page);
             // Feature #4: Brave PoW challenge grace period
             if ((await page.title()).includes('PoW Captcha')) {
-                console.log(`[SearchEngine] Brave: PoW Captcha detected, waiting 2s for challenge to resolve...`);
-                await page.waitForTimeout(2000);
+                console.log(`[SearchEngine] Brave: PoW Captcha detected, waiting up to 8s for challenge to resolve...`);
+                try {
+                    await page.waitForSelector('[data-type="web"]', { timeout: 8000 });
+                }
+                catch {
+                    // It might time out, we'll let the next selector catch block handle logging
+                }
             }
             try {
                 await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
@@ -569,7 +574,7 @@ function getRandomViewportAndDevice() {
         { width: 1280, height: 720 },
     ];
     const viewport = viewports[Math.floor(Math.random() * viewports.length)];
-    const hasTouch = Math.random() > 0.8; // Some desktops have touch
+    const hasTouch = false; // MUST be false, Bing changes DOM to unparseable mobile touch UI if true
     const isMobile = false; // Stick to Desktop UAs for now to match the parsed logic
     return { viewport, hasTouch, isMobile };
 }
