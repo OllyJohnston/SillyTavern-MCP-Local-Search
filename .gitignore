@@ -30,3 +30,4 @@ Thumbs.db
 # Project specific
 plugins/mcp-local-search/node_modules/
 public/scripts/extensions/third-party/mcp-local-search/node_modules/
+*.zip
