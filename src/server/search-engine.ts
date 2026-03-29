@@ -137,8 +137,8 @@ export class SearchEngine {
     let context;
     try {
       context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        viewport: { width: 1366, height: 768 },
+        userAgent: getRandomUserAgent(),
+        viewport: getRandomViewport(),
         locale: 'en-US',
         timezoneId: 'America/New_York',
       });
@@ -146,6 +146,7 @@ export class SearchEngine {
       const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web`;
       console.log(`[SearchEngine] Browser navigating to Brave: ${searchUrl}`);
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
+      await this.dismissConsent(page);
       try {
         await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
       } catch {
@@ -154,6 +155,10 @@ export class SearchEngine {
       const html = await page.content();
       console.log(`[SearchEngine] Browser Brave got HTML with length: ${html.length}`);
       const results = this.parseBraveResults(html, numResults);
+      if (results.length === 0) {
+        const pageTitle = await page.title().catch(() => 'unknown');
+        console.log(`[SearchEngine] Brave Debug: Page title is "${pageTitle}"`);
+      }
       console.log(`[SearchEngine] Browser Brave parsed ${results.length} results`);
       return results;
     } catch (error) {
@@ -205,8 +210,8 @@ export class SearchEngine {
     let context;
     try {
       context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        viewport: { width: 1366, height: 768 },
+        userAgent: getRandomUserAgent(),
+        viewport: getRandomViewport(),
         locale: 'en-US',
         timezoneId: 'America/New_York',
         colorScheme: 'light',
@@ -227,26 +232,30 @@ export class SearchEngine {
       console.log(`[SearchEngine] BING: Context created, opening new page...`);
       let page = await context.newPage();
       console.log(`[SearchEngine] BING: Page opened successfully`);
+
+      // Try enhanced search first (homepage interaction)
+      let results: SearchResult[] = [];
       try {
         console.log(`[SearchEngine] BING: Attempting enhanced search (homepage → form submission)...`);
-        const results = await this.tryEnhancedBingSearch(page, query, numResults, timeout);
-        console.log(`[SearchEngine] BING: Enhanced search succeeded with ${results.length} results`);
-        return results;
+        results = await this.tryEnhancedBingSearch(page, query, numResults, timeout);
+        console.log(`[SearchEngine] BING: Enhanced search returned ${results.length} results`);
       } catch (enhancedError) {
         const errorMessage = enhancedError instanceof Error ? enhancedError.message : 'Unknown error';
         console.error(`[SearchEngine] BING: Enhanced search failed: ${errorMessage}`);
         if (debugBing) console.error(`[SearchEngine] BING: Enhanced search error details:`, enhancedError);
+      }
 
-        // Finding #3: Close stalled page and create a fresh one for the fallback
-        console.log(`[SearchEngine] BING: Closing stalled page and creating fresh page for direct search...`);
-        await page.close().catch((e: any) => console.error(`[SearchEngine] BING: Error closing stalled page:`, e));
+      // Finding #1: Fallback to direct search if enhanced returned 0 results OR crashed
+      if (results.length === 0) {
+        console.log(`[SearchEngine] BING: Enhanced search empty or failed, closing page and trying direct URL search...`);
+        await page.close().catch((e: any) => console.error(`[SearchEngine] BING: Error closing page:`, e));
         page = await context.newPage();
 
-        console.log(`[SearchEngine] BING: Falling back to direct URL search...`);
-        const results = await this.tryDirectBingSearch(page, query, numResults, timeout);
-        console.log(`[SearchEngine] BING: Direct search succeeded with ${results.length} results`);
-        return results;
+        results = await this.tryDirectBingSearch(page, query, numResults, timeout);
+        console.log(`[SearchEngine] BING: Direct search returned ${results.length} results`);
       }
+
+      return results;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error(`[SearchEngine] BING: Internal search failed: ${errorMessage}`);
@@ -265,6 +274,7 @@ export class SearchEngine {
     await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: Math.max(timeout * 0.8, 5000) });
     const loadTime = Date.now() - startTime;
     console.log(`[SearchEngine] BING: Homepage loaded in ${loadTime}ms`);
+    await this.dismissConsent(page);
     await page.waitForTimeout(500);
     try {
       console.log(`[SearchEngine] BING: Looking for search form elements...`);
@@ -283,6 +293,7 @@ export class SearchEngine {
       console.error(`[SearchEngine] BING: Search form submission failed: ${errorMessage}`);
       throw formError;
     }
+    await this.dismissConsent(page);
     try {
       console.log(`[SearchEngine] BING: Waiting for search results to appear...`);
       await page.waitForSelector('.b_algo, .b_result', { timeout: 3000 });
@@ -293,6 +304,10 @@ export class SearchEngine {
     const html = await page.content();
     console.log(`[SearchEngine] BING: Got page HTML with length: ${html.length} characters`);
     const results = this.parseBingResults(html, numResults);
+    if (results.length === 0) {
+      const pageTitle = await page.title().catch(() => 'unknown');
+      console.log(`[SearchEngine] BING Enhanced Debug: Page title is "${pageTitle}"`);
+    }
     console.log(`[SearchEngine] BING: Enhanced search parsed ${results.length} results`);
     return results;
   }
@@ -307,6 +322,7 @@ export class SearchEngine {
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
     const loadTime = Date.now() - startTime;
     console.log(`[SearchEngine] BING: Direct page loaded in ${loadTime}ms`);
+    await this.dismissConsent(page);
     try {
       console.log(`[SearchEngine] BING: Waiting for search results to appear...`);
       await page.waitForSelector('.b_algo, .b_result', { timeout: 3000 });
@@ -317,6 +333,10 @@ export class SearchEngine {
     const html = await page.content();
     console.log(`[SearchEngine] BING: Got page HTML with length: ${html.length} characters`);
     const results = this.parseBingResults(html, numResults);
+    if (results.length === 0) {
+      const pageTitle = await page.title().catch(() => 'unknown');
+      console.log(`[SearchEngine] BING Direct Debug: Page title is "${pageTitle}"`);
+    }
     console.log(`[SearchEngine] BING: Direct search parsed ${results.length} results`);
     return results;
   }
@@ -471,12 +491,59 @@ export class SearchEngine {
       await this.browserPool.closeAll();
     }
   }
+
+  // Finding #3: Dismiss cookie consent / "Before you continue" walls
+  private async dismissConsent(page: any): Promise<void> {
+    const selectors = [
+      '#bnp_btn_accept',           // Bing cookie consent
+      '#bnp_ttc_close',            // Bing "take a tour" close
+      'button[id*="accept"]',      // Generic accept buttons
+      'button[id*="consent"]',     // Generic consent buttons
+      'button.accept',             // Brave consent
+      '.modal-footer button',      // Brave modal
+      '#onetrust-accept-btn-handler', // OneTrust (common third-party)
+      'button[aria-label*="Accept"]', // ARIA-labelled accept buttons
+    ];
+    try {
+      for (const selector of selectors) {
+        const element = await page.$(selector);
+        if (element) {
+          const isVisible = await element.isVisible().catch(() => false);
+          if (isVisible) {
+            console.log(`[SearchEngine] Consent: Clicking "${selector}"`);
+            await element.click();
+            await page.waitForTimeout(500);
+          }
+        }
+      }
+    } catch (e: any) {
+      // Consent dismissal is best-effort, never block on failure
+    }
+  }
 }
 
+// Finding #2: Expanded User-Agent pool to reduce fingerprint flagging
 function getRandomUserAgent(): string {
   const ua = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0',
   ];
   return ua[Math.floor(Math.random() * ua.length)];
+}
+
+// Finding #2: Randomize viewport dimensions to reduce fingerprint flagging
+function getRandomViewport(): { width: number; height: number } {
+  const viewports = [
+    { width: 1920, height: 1080 },
+    { width: 1366, height: 768 },
+    { width: 1536, height: 864 },
+    { width: 1440, height: 900 },
+    { width: 1280, height: 720 },
+  ];
+  return viewports[Math.floor(Math.random() * viewports.length)];
 }
