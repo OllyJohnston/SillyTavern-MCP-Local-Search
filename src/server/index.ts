@@ -10,7 +10,7 @@ let contentExtractor: EnhancedContentExtractor | null = null;
 
 const defaultConfig: ServerConfig = {
   maxContentLength: 15000,
-  defaultTimeout: 10000,
+  defaultTimeout: 30000,
   maxBrowsers: 2,
   browserHeadless: true,
   browserTypes: ['chromium'],

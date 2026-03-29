@@ -51,7 +51,7 @@ export class SearchEngine {
             console.log(`[SearchEngine] Attempting ${approach.name} (${i + 1}/${approaches.length})...`);
 
             // Use more aggressive timeouts for faster fallback
-            const approachTimeout = Math.min(timeout / 3, 4000); // Max 4 seconds per approach for faster fallback
+            const approachTimeout = Math.min(timeout / 3, 10000); // Max 10 seconds per approach for faster fallback
             const results = await approach.method(sanitizedQuery, numResults, approachTimeout);
             if (results.length > 0) {
               console.log(`[SearchEngine] Found ${results.length} results with ${approach.name}`);
@@ -260,10 +260,9 @@ export class SearchEngine {
   }
 
   private async tryEnhancedBingSearch(page: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
-    const debugBing = this.config.debugBingSearch;
     console.log(`[SearchEngine] BING: Enhanced search - navigating to Bing homepage...`);
     const startTime = Date.now();
-    await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: timeout / 2 });
+    await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: Math.max(timeout * 0.8, 5000) });
     const loadTime = Date.now() - startTime;
     console.log(`[SearchEngine] BING: Homepage loaded in ${loadTime}ms`);
     await page.waitForTimeout(500);

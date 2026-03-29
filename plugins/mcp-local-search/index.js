@@ -7,7 +7,7 @@ let searchEngine = null;
 let contentExtractor = null;
 const defaultConfig = {
     maxContentLength: 15000,
-    defaultTimeout: 10000,
+    defaultTimeout: 30000,
     maxBrowsers: 2,
     browserHeadless: true,
     browserTypes: ['chromium'],
