@@ -65,8 +65,9 @@ export class EnhancedContentExtractor {
   private async extractWithBrowser(options: ContentExtractionOptions): Promise<string> {
     const { url, timeout = this.defaultTimeout } = options;
     const browser = await this.browserPool.getBrowser();
+    let context;
     try {
-      const context = await browser.newContext({
+      context = await browser.newContext({
         userAgent: this.getRandomUserAgent(),
         viewport: this.getRandomViewport(),
         locale: 'en-US',
@@ -97,11 +98,14 @@ export class EnhancedContentExtractor {
         return { text: document.body.innerText, selectorUsed: 'body' };
       });
       const content = this.cleanTextContent(extractedData.text);
-      await context.close();
       return content;
     } catch (error) {
       console.error(`[BrowserExtractor] Browser extraction failed for ${url}:`, error);
       throw error;
+    } finally {
+      if (context) {
+        await context.close().catch((e: any) => console.error(`[BrowserExtractor] Error closing context:`, e));
+      }
     }
   }
 
