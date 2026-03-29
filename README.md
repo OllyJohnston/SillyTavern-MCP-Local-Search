@@ -61,6 +61,33 @@ SillyTavern/
 
 ---
 
+## 🚀 SillyTavern Memory Optimization & Performance Tuning
+
+When running intensive SillyTavern workloads involving local vectorization (RAG) and real-world web scraping, the Node.js runtime can exhibit significant heap expansion. On systems with high available RAM, the V8 engine is often "lazy" with garbage collection, allowing the process to claim 4GB or more of Resident Set Size (RSS) without releasing it.
+
+To ensure the environment remains stable and performant during long-term intelligence analysis or heavy data retrieval, it is recommended to launch the server with specific V8 optimization flags.
+
+### Recommended Startup Configuration
+Modify your `start.bat` or launch script to include the following flags. Amend the lines that call the update check, and init the node server:
+
+```batch
+:: Checks for updates without bloat
+call npm install --no-save --no-audit --no-fund --loglevel=error --no-progress --omit=dev
+
+:: Optimized Node execution with memory management flags
+node --max-old-space-size=4096 --max-semi-space-size=128 --optimize-for-size --expose-gc server.js %*
+```
+
+### Technical Breakdown of Flags
+The following flags shift Node.js from an "expand-on-demand" model to a more disciplined, Java-style memory management approach:
+
+- **`--max-old-space-size=4096`**: Sets a hard limit (4GB) on the V8 heap's Old Generation. This prevents the process from ballooning unnecessarily on workstations with 32GB+ of RAM.
+- **`--max-semi-space-size=128`**: Increases the size of the "New Space" (Young Generation). This is critical for web search tools that generate a high volume of short-lived strings during HTML parsing, as it allows for faster, more frequent minor garbage collection cycles.
+- **`--optimize-for-size`**: Instructs the compiler and garbage collector to prioritize a smaller memory footprint over raw execution speed. This forces more aggressive memory reclamation after heavy data-processing turns.
+- **`--expose-gc`**: Allows for manual triggering of garbage collection via internal scripts or extensions, providing a failsafe to flush the heap after particularly large context injections.
+
+---
+
 ## 🚀 Getting Started
 
 1. **Restart SillyTavern**: Run your usual start script (`Start.bat` or `npm start`).
