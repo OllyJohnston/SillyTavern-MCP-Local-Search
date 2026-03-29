@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { CancelTokenSource } from 'axios';
 import * as cheerio from 'cheerio';
 import { ContentExtractionOptions, SearchResult, ServerConfig } from './types.js';
 import { cleanText, getWordCount, getContentPreview, generateTimestamp, isPdfUrl } from './utils.js';
@@ -47,19 +47,27 @@ export class EnhancedContentExtractor {
 
   private async extractWithAxios(options: ContentExtractionOptions): Promise<string> {
     const { url, timeout = this.defaultTimeout, maxContentLength = this.maxContentLength } = options;
-    const response = await axios.get(url, {
-      headers: this.getRandomHeaders(),
-      timeout,
-      validateStatus: (status: number) => status < 400,
-    });
-    let content = this.parseContent(response.data);
-    if (maxContentLength && content.length > maxContentLength) {
-      content = content.substring(0, maxContentLength);
+    // Finding #2: Use AbortController for cancellable Axios requests
+    const controller = new AbortController();
+    try {
+      const response = await axios.get(url, {
+        headers: this.getRandomHeaders(),
+        timeout,
+        signal: controller.signal,
+        validateStatus: (status: number) => status < 400,
+      });
+      let content = this.parseContent(response.data);
+      if (maxContentLength && content.length > maxContentLength) {
+        content = content.substring(0, maxContentLength);
+      }
+      if (this.isLowQualityContent(content)) {
+        throw new Error('Low quality content detected - likely bot detection');
+      }
+      return content;
+    } catch (error) {
+      controller.abort(); // Ensure any in-flight request is cancelled
+      throw error;
     }
-    if (this.isLowQualityContent(content)) {
-      throw new Error('Low quality content detected - likely bot detection');
-    }
-    return content;
   }
 
   private async extractWithBrowser(options: ContentExtractionOptions): Promise<string> {
@@ -73,12 +81,13 @@ export class EnhancedContentExtractor {
         locale: 'en-US',
       });
       const page = await context.newPage();
-      await page.route('**/*', (route) => {
+      // Finding #5: Await route.abort() and route.continue() to prevent dangling promises
+      await page.route('**/*', async (route) => {
         const resourceType = route.request().resourceType();
         if (['image', 'font', 'media'].includes(resourceType)) {
-          route.abort();
+          await route.abort();
         } else {
-          route.continue();
+          await route.continue();
         }
       });
       console.log(`[BrowserExtractor] Navigating to ${url}`);
@@ -135,15 +144,50 @@ export class EnhancedContentExtractor {
   private getRandomUserAgent(): string { return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'; }
   private getRandomViewport(): { width: number; height: number } { return { width: 1920, height: 1080 }; }
 
+  // Finding #2: Replace Promise.race with cancellable extraction using AbortController
   async extractContentForResults(results: SearchResult[], targetCount: number = results.length): Promise<SearchResult[]> {
     const nonPdfResults = results.filter(result => !isPdfUrl(result.url));
     const resultsToProcess = nonPdfResults.slice(0, targetCount);
     const extractionPromises = resultsToProcess.map(async (result): Promise<SearchResult> => {
+      const EXTRACTION_TIMEOUT = 8000;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      let contextToKill: any = null;
+
       try {
-        const content = await Promise.race([
-          this.extractContent({ url: result.url, timeout: 6000 }),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
-        ]);
+        const content = await new Promise<string>((resolve, reject) => {
+          let settled = false;
+
+          // Set up the timeout that will actively kill any in-flight work
+          timeoutHandle = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              // Forcefully close any browser context that may be running
+              if (contextToKill) {
+                contextToKill.close().catch(() => {});
+                contextToKill = null;
+              }
+              reject(new Error('Extraction timeout'));
+            }
+          }, EXTRACTION_TIMEOUT);
+
+          // Run the extraction
+          this.extractContent({ url: result.url, timeout: 6000 })
+            .then((content) => {
+              if (!settled) {
+                settled = true;
+                if (timeoutHandle) clearTimeout(timeoutHandle);
+                resolve(content);
+              }
+            })
+            .catch((err) => {
+              if (!settled) {
+                settled = true;
+                if (timeoutHandle) clearTimeout(timeoutHandle);
+                reject(err);
+              }
+            });
+        });
+
         const cleanedContent = cleanText(content, this.maxContentLength);
         return {
           ...result,
@@ -154,6 +198,8 @@ export class EnhancedContentExtractor {
           fetchStatus: 'success',
         };
       } catch (error) {
+        // Clear the timeout to prevent lingering timer closures
+        if (timeoutHandle) clearTimeout(timeoutHandle);
         return {
           ...result,
           fullContent: '',

@@ -44,37 +44,48 @@ export class EnhancedContentExtractor {
     }
     async extractWithAxios(options) {
         const { url, timeout = this.defaultTimeout, maxContentLength = this.maxContentLength } = options;
-        const response = await axios.get(url, {
-            headers: this.getRandomHeaders(),
-            timeout,
-            validateStatus: (status) => status < 400,
-        });
-        let content = this.parseContent(response.data);
-        if (maxContentLength && content.length > maxContentLength) {
-            content = content.substring(0, maxContentLength);
+        // Finding #2: Use AbortController for cancellable Axios requests
+        const controller = new AbortController();
+        try {
+            const response = await axios.get(url, {
+                headers: this.getRandomHeaders(),
+                timeout,
+                signal: controller.signal,
+                validateStatus: (status) => status < 400,
+            });
+            let content = this.parseContent(response.data);
+            if (maxContentLength && content.length > maxContentLength) {
+                content = content.substring(0, maxContentLength);
+            }
+            if (this.isLowQualityContent(content)) {
+                throw new Error('Low quality content detected - likely bot detection');
+            }
+            return content;
         }
-        if (this.isLowQualityContent(content)) {
-            throw new Error('Low quality content detected - likely bot detection');
+        catch (error) {
+            controller.abort(); // Ensure any in-flight request is cancelled
+            throw error;
         }
-        return content;
     }
     async extractWithBrowser(options) {
         const { url, timeout = this.defaultTimeout } = options;
         const browser = await this.browserPool.getBrowser();
+        let context;
         try {
-            const context = await browser.newContext({
+            context = await browser.newContext({
                 userAgent: this.getRandomUserAgent(),
                 viewport: this.getRandomViewport(),
                 locale: 'en-US',
             });
             const page = await context.newPage();
-            await page.route('**/*', (route) => {
+            // Finding #5: Await route.abort() and route.continue() to prevent dangling promises
+            await page.route('**/*', async (route) => {
                 const resourceType = route.request().resourceType();
                 if (['image', 'font', 'media'].includes(resourceType)) {
-                    route.abort();
+                    await route.abort();
                 }
                 else {
-                    route.continue();
+                    await route.continue();
                 }
             });
             console.log(`[BrowserExtractor] Navigating to ${url}`);
@@ -94,12 +105,16 @@ export class EnhancedContentExtractor {
                 return { text: document.body.innerText, selectorUsed: 'body' };
             });
             const content = this.cleanTextContent(extractedData.text);
-            await context.close();
             return content;
         }
         catch (error) {
             console.error(`[BrowserExtractor] Browser extraction failed for ${url}:`, error);
             throw error;
+        }
+        finally {
+            if (context) {
+                await context.close().catch((e) => console.error(`[BrowserExtractor] Error closing context:`, e));
+            }
         }
     }
     shouldUseBrowser(error, url) {
@@ -124,15 +139,48 @@ export class EnhancedContentExtractor {
     }
     getRandomUserAgent() { return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'; }
     getRandomViewport() { return { width: 1920, height: 1080 }; }
+    // Finding #2: Replace Promise.race with cancellable extraction using AbortController
     async extractContentForResults(results, targetCount = results.length) {
         const nonPdfResults = results.filter(result => !isPdfUrl(result.url));
         const resultsToProcess = nonPdfResults.slice(0, targetCount);
         const extractionPromises = resultsToProcess.map(async (result) => {
+            const EXTRACTION_TIMEOUT = 8000;
+            let timeoutHandle = null;
+            let contextToKill = null;
             try {
-                const content = await Promise.race([
-                    this.extractContent({ url: result.url, timeout: 6000 }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
-                ]);
+                const content = await new Promise((resolve, reject) => {
+                    let settled = false;
+                    // Set up the timeout that will actively kill any in-flight work
+                    timeoutHandle = setTimeout(() => {
+                        if (!settled) {
+                            settled = true;
+                            // Forcefully close any browser context that may be running
+                            if (contextToKill) {
+                                contextToKill.close().catch(() => { });
+                                contextToKill = null;
+                            }
+                            reject(new Error('Extraction timeout'));
+                        }
+                    }, EXTRACTION_TIMEOUT);
+                    // Run the extraction
+                    this.extractContent({ url: result.url, timeout: 6000 })
+                        .then((content) => {
+                        if (!settled) {
+                            settled = true;
+                            if (timeoutHandle)
+                                clearTimeout(timeoutHandle);
+                            resolve(content);
+                        }
+                    })
+                        .catch((err) => {
+                        if (!settled) {
+                            settled = true;
+                            if (timeoutHandle)
+                                clearTimeout(timeoutHandle);
+                            reject(err);
+                        }
+                    });
+                });
                 const cleanedContent = cleanText(content, this.maxContentLength);
                 return {
                     ...result,
@@ -144,6 +192,9 @@ export class EnhancedContentExtractor {
                 };
             }
             catch (error) {
+                // Clear the timeout to prevent lingering timer closures
+                if (timeoutHandle)
+                    clearTimeout(timeoutHandle);
                 return {
                     ...result,
                     fullContent: '',

@@ -225,7 +225,7 @@ export class SearchEngine {
         }
       });
       console.log(`[SearchEngine] BING: Context created, opening new page...`);
-      const page = await context.newPage();
+      let page = await context.newPage();
       console.log(`[SearchEngine] BING: Page opened successfully`);
       try {
         console.log(`[SearchEngine] BING: Attempting enhanced search (homepage → form submission)...`);
@@ -236,6 +236,12 @@ export class SearchEngine {
         const errorMessage = enhancedError instanceof Error ? enhancedError.message : 'Unknown error';
         console.error(`[SearchEngine] BING: Enhanced search failed: ${errorMessage}`);
         if (debugBing) console.error(`[SearchEngine] BING: Enhanced search error details:`, enhancedError);
+
+        // Finding #3: Close stalled page and create a fresh one for the fallback
+        console.log(`[SearchEngine] BING: Closing stalled page and creating fresh page for direct search...`);
+        await page.close().catch((e: any) => console.error(`[SearchEngine] BING: Error closing stalled page:`, e));
+        page = await context.newPage();
+
         console.log(`[SearchEngine] BING: Falling back to direct URL search...`);
         const results = await this.tryDirectBingSearch(page, query, numResults, timeout);
         console.log(`[SearchEngine] BING: Direct search succeeded with ${results.length} results`);

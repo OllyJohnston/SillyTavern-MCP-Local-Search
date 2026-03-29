@@ -120,39 +120,38 @@ export class SearchEngine {
     async tryBrowserBraveSearchInternal(browser, query, numResults, timeout) {
         if (!browser.isConnected())
             throw new Error('Browser is not connected');
+        let context;
         try {
-            const context = await browser.newContext({
+            context = await browser.newContext({
                 userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 viewport: { width: 1366, height: 768 },
                 locale: 'en-US',
                 timezoneId: 'America/New_York',
             });
+            const page = await context.newPage();
+            const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web`;
+            console.log(`[SearchEngine] Browser navigating to Brave: ${searchUrl}`);
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
             try {
-                const page = await context.newPage();
-                const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web`;
-                console.log(`[SearchEngine] Browser navigating to Brave: ${searchUrl}`);
-                await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
-                try {
-                    await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
-                }
-                catch {
-                    console.log(`[SearchEngine] Browser Brave results selector not found, proceeding anyway`);
-                }
-                const html = await page.content();
-                console.log(`[SearchEngine] Browser Brave got HTML with length: ${html.length}`);
-                const results = this.parseBraveResults(html, numResults);
-                console.log(`[SearchEngine] Browser Brave parsed ${results.length} results`);
-                await context.close();
-                return results;
+                await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
             }
-            catch (error) {
-                await context.close();
-                throw error;
+            catch {
+                console.log(`[SearchEngine] Browser Brave results selector not found, proceeding anyway`);
             }
+            const html = await page.content();
+            console.log(`[SearchEngine] Browser Brave got HTML with length: ${html.length}`);
+            const results = this.parseBraveResults(html, numResults);
+            console.log(`[SearchEngine] Browser Brave parsed ${results.length} results`);
+            return results;
         }
         catch (error) {
             console.error(`[SearchEngine] Browser Brave search failed:`, error);
             throw error;
+        }
+        finally {
+            if (context) {
+                await context.close().catch((e) => console.error(`[SearchEngine] Error closing context:`, e));
+            }
         }
     }
     async tryBrowserBingSearch(query, numResults, timeout) {
@@ -192,8 +191,9 @@ export class SearchEngine {
             throw new Error('Browser is not connected');
         }
         console.log(`[SearchEngine] BING: Creating browser context with enhanced fingerprinting...`);
+        let context;
         try {
-            const context = await browser.newContext({
+            context = await browser.newContext({
                 userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 viewport: { width: 1366, height: 768 },
                 locale: 'en-US',
@@ -214,32 +214,27 @@ export class SearchEngine {
                 }
             });
             console.log(`[SearchEngine] BING: Context created, opening new page...`);
-            const page = await context.newPage();
+            let page = await context.newPage();
             console.log(`[SearchEngine] BING: Page opened successfully`);
             try {
-                try {
-                    console.log(`[SearchEngine] BING: Attempting enhanced search (homepage → form submission)...`);
-                    const results = await this.tryEnhancedBingSearch(page, query, numResults, timeout);
-                    console.log(`[SearchEngine] BING: Enhanced search succeeded with ${results.length} results`);
-                    await context.close();
-                    return results;
-                }
-                catch (enhancedError) {
-                    const errorMessage = enhancedError instanceof Error ? enhancedError.message : 'Unknown error';
-                    console.error(`[SearchEngine] BING: Enhanced search failed: ${errorMessage}`);
-                    if (debugBing)
-                        console.error(`[SearchEngine] BING: Enhanced search error details:`, enhancedError);
-                    console.log(`[SearchEngine] BING: Falling back to direct URL search...`);
-                    const results = await this.tryDirectBingSearch(page, query, numResults, timeout);
-                    console.log(`[SearchEngine] BING: Direct search succeeded with ${results.length} results`);
-                    await context.close();
-                    return results;
-                }
+                console.log(`[SearchEngine] BING: Attempting enhanced search (homepage → form submission)...`);
+                const results = await this.tryEnhancedBingSearch(page, query, numResults, timeout);
+                console.log(`[SearchEngine] BING: Enhanced search succeeded with ${results.length} results`);
+                return results;
             }
-            catch (error) {
-                console.error(`[SearchEngine] BING: All search methods failed, closing context...`);
-                await context.close();
-                throw error;
+            catch (enhancedError) {
+                const errorMessage = enhancedError instanceof Error ? enhancedError.message : 'Unknown error';
+                console.error(`[SearchEngine] BING: Enhanced search failed: ${errorMessage}`);
+                if (debugBing)
+                    console.error(`[SearchEngine] BING: Enhanced search error details:`, enhancedError);
+                // Finding #3: Close stalled page and create a fresh one for the fallback
+                console.log(`[SearchEngine] BING: Closing stalled page and creating fresh page for direct search...`);
+                await page.close().catch((e) => console.error(`[SearchEngine] BING: Error closing stalled page:`, e));
+                page = await context.newPage();
+                console.log(`[SearchEngine] BING: Falling back to direct URL search...`);
+                const results = await this.tryDirectBingSearch(page, query, numResults, timeout);
+                console.log(`[SearchEngine] BING: Direct search succeeded with ${results.length} results`);
+                return results;
             }
         }
         catch (error) {
@@ -248,6 +243,11 @@ export class SearchEngine {
             if (debugBing)
                 console.error(`[SearchEngine] BING: Internal search error details:`, error);
             throw error;
+        }
+        finally {
+            if (context) {
+                await context.close().catch((e) => console.error(`[SearchEngine] BING: Error closing context:`, e));
+            }
         }
     }
     async tryEnhancedBingSearch(page, query, numResults, timeout) {

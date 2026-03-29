@@ -3,6 +3,7 @@ import { ServerConfig } from './types.js';
 
 export class BrowserPool {
   private browsers: Map<string, Browser> = new Map();
+  private launchPromises: Map<string, Promise<Browser>> = new Map();
   private maxBrowsers: number;
   private browserTypes: string[];
   private currentBrowserIndex = 0;
@@ -25,34 +26,48 @@ export class BrowserPool {
     this.currentBrowserIndex++;
     this.lastUsedBrowserType = browserType;
 
+    // Check if we already have a healthy cached browser
     if (this.browsers.has(browserType)) {
       const browser = this.browsers.get(browserType)!;
       
-      // Check if browser is still connected and healthy
+      // Finding #4: Use isConnected() only — no context-based health check
+      if (browser.isConnected()) {
+        return browser;
+      }
+
+      // Browser is disconnected, clean it up
+      console.warn(`[BrowserPool] Browser ${browserType} is disconnected, removing from pool`);
+      this.browsers.delete(browserType);
       try {
-        if (browser.isConnected()) {
-          // Quick health check by trying to create and close a context
-          const testContext = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-          });
-          await testContext.close();
-          return browser;
-        }
-      } catch (error) {
-        console.error(`[BrowserPool] Browser ${browserType} health check failed:`, error);
-        // Browser is unhealthy, remove it and close if possible
-        this.browsers.delete(browserType);
-        try {
-          await browser.close();
-        } catch (closeError) {
-          console.error(`[BrowserPool] Error closing unhealthy browser:`, closeError);
-        }
+        await browser.close();
+      } catch (closeError) {
+        // Already disconnected, ignore
       }
     }
 
-    // Launch new browser
+    // Finding #1: Prevent thundering herd — if a launch is already in-flight
+    // for this browser type, await the existing promise instead of spawning a duplicate
+    if (this.launchPromises.has(browserType)) {
+      console.log(`[BrowserPool] Launch already in-flight for ${browserType}, awaiting existing promise`);
+      return await this.launchPromises.get(browserType)!;
+    }
+
+    // Launch new browser and register the promise to prevent concurrent duplicates
     console.log(`[BrowserPool] Launching new ${browserType} browser`);
     
+    const launchPromise = this.launchBrowser(browserType);
+    this.launchPromises.set(browserType, launchPromise);
+
+    try {
+      const browser = await launchPromise;
+      return browser;
+    } finally {
+      // Always clear the in-flight promise, whether launch succeeded or failed
+      this.launchPromises.delete(browserType);
+    }
+  }
+
+  private async launchBrowser(browserType: string): Promise<Browser> {
     const launchOptions = {
       headless: this.headless,
       args: [
@@ -88,6 +103,16 @@ export class BrowserPool {
           browser = await chromium.launch(launchOptions);
       }
 
+      // Close any old browser this replaces before storing the new one
+      if (this.browsers.has(browserType)) {
+        const oldBrowser = this.browsers.get(browserType)!;
+        try {
+          await oldBrowser.close();
+        } catch (_e) {
+          // Already closed, ignore
+        }
+      }
+
       this.browsers.set(browserType, browser);
       
       // Clean up old browsers if we have too many
@@ -114,13 +139,14 @@ export class BrowserPool {
     console.log(`[BrowserPool] Closing ${this.browsers.size} browsers`);
     
     const closePromises = Array.from(this.browsers.values()).map(browser => 
-      browser.close().catch(error => 
+      browser.close().catch((error: any) => 
         console.error('Error closing browser:', error)
       )
     );
     
     await Promise.all(closePromises);
     this.browsers.clear();
+    this.launchPromises.clear();
   }
 
   getLastUsedBrowserType(): string {
