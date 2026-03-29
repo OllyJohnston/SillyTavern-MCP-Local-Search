@@ -82,7 +82,12 @@ export class SearchEngine {
                         await this.handleBrowserError(error, approach.name);
                     }
                 }
-                console.log(`[SearchEngine] All approaches failed, returning empty results`);
+                // If we finished the loop and have any results, return the best ones found
+                if (bestResults.length > 0) {
+                    console.log(`[SearchEngine] Search finished, using best results found from ${bestEngine} (quality: ${bestQuality.toFixed(2)})`);
+                    return { results: bestResults, engine: bestEngine };
+                }
+                console.log(`[SearchEngine] All approaches failed to find results, returning empty`);
                 return { results: [], engine: 'None' };
             });
         }
