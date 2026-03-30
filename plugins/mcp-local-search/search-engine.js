@@ -18,62 +18,75 @@ export class SearchEngine {
         try {
             return await this.rateLimiter.execute(async () => {
                 console.log(`[SearchEngine] Starting search with multiple engines...`);
-                // Configuration from environment variables
+                // Configuration from options with fallbacks to environment config
                 const enableQualityCheck = this.config.enableRelevanceChecking;
                 const qualityThreshold = this.config.relevanceThreshold;
-                const forceMultiEngine = this.config.forceMultiEngineSearch;
+                // Use per-request override if available, otherwise use global config
+                const forceMultiEngine = options.forceMultiEngine !== undefined ? options.forceMultiEngine : this.config.forceMultiEngineSearch;
                 const debugBrowsers = this.config.debugBrowserLifecycle;
-                console.log(`[SearchEngine] Quality checking: ${enableQualityCheck}, threshold: ${qualityThreshold}, multi-engine: ${forceMultiEngine}, debug: ${debugBrowsers}`);
-                // Try multiple approaches to get search results, starting with most reliable
-                const approaches = [
-                    { method: this.tryBrowserBingSearch.bind(this), name: 'Browser Bing' },
-                    { method: this.tryBrowserBraveSearch.bind(this), name: 'Browser Brave' },
-                    { method: this.tryDuckDuckGoSearch.bind(this), name: 'Axios DuckDuckGo' }
+                console.log(`[SearchEngine] Search configuration:`, {
+                    enableQualityCheck,
+                    qualityThreshold,
+                    forceMultiEngine,
+                    preferredEngine: options.preferredEngine
+                });
+                // Try multiple approaches to get search results, starting with preferred engine
+                const allApproaches = [
+                    { method: this.tryBrowserBingSearch.bind(this), name: 'Browser Bing', id: 'bing' },
+                    { method: this.tryDuckDuckGoSearch.bind(this), name: 'Axios DuckDuckGo', id: 'duckduckgo' },
+                    { method: this.tryStartpageSearch.bind(this), name: 'Axios Startpage', id: 'startpage' }
                 ];
+                // Prioritize the preferred engine if provided (defaults to bing)
+                const preferredId = options.preferredEngine || 'bing';
+                console.log(`[SearchEngine] Prioritizing engine ID: "${preferredId}"`);
+                const approaches = [
+                    ...allApproaches.filter(a => a.id === preferredId),
+                    ...allApproaches.filter(a => a.id !== preferredId)
+                ];
+                console.log(`[SearchEngine] Effective waterfall: ${approaches.map(a => a.name).join(' -> ')}`);
                 let bestResults = [];
                 let bestEngine = 'None';
                 let bestQuality = 0;
                 for (let i = 0; i < approaches.length; i++) {
                     const approach = approaches[i];
                     try {
-                        console.log(`[SearchEngine] Attempting ${approach.name} (${i + 1}/${approaches.length})...`);
+                        console.log(`[SearchEngine] [${i + 1}/${approaches.length}] Attempting ${approach.name}...`);
                         // Use more aggressive timeouts for faster fallback
-                        const approachTimeout = Math.min(timeout / 3, 10000); // Max 10 seconds per approach for faster fallback
+                        const approachTimeout = Math.min(timeout / 3, 10000);
                         const results = await approach.method(sanitizedQuery, numResults, approachTimeout);
-                        if (results.length > 0) {
+                        if (results && results.length > 0) {
                             console.log(`[SearchEngine] Found ${results.length} results with ${approach.name}`);
-                            // Validate result quality to detect irrelevant results
                             const qualityScore = enableQualityCheck ? this.assessResultQuality(results, sanitizedQuery) : 1.0;
                             console.log(`[SearchEngine] ${approach.name} quality score: ${qualityScore.toFixed(2)}/1.0`);
-                            // Track the best results so far
                             if (qualityScore > bestQuality) {
                                 bestResults = results;
                                 bestEngine = approach.name;
                                 bestQuality = qualityScore;
                             }
-                            // If quality is excellent, return immediately (unless forcing multi-engine)
+                            // EXIT LOGIC:
+                            // 1. Ultra-high quality results (score >= 0.95) - return immediately regardless of multi-engine toggle
+                            if (qualityScore >= 0.95) {
+                                console.log(`[SearchEngine] Ultra-high quality results from ${approach.name} (100% relevance), returning immediately.`);
+                                return { results, engine: approach.name };
+                            }
+                            // 2. Excellent results (score >= 0.8) and NOT forcing multi-engine
                             if (qualityScore >= 0.8 && !forceMultiEngine) {
-                                console.log(`[SearchEngine] Excellent quality results from ${approach.name}, returning immediately`);
+                                console.log(`[SearchEngine] Excellent results from ${approach.name}, returning immediately.`);
                                 return { results, engine: approach.name };
                             }
-                            // If quality is acceptable and this isn't Bing (first engine), return
-                            if (qualityScore >= qualityThreshold && approach.name !== 'Browser Bing' && !forceMultiEngine) {
-                                console.log(`[SearchEngine] Good quality results from ${approach.name}, using as primary`);
+                            // 2. Acceptable results (score >= threshold) and NOT forcing multi-engine
+                            // Note: Removed the Bing-specific exclusion here to allow returning immediately from ANY first engine if preferred
+                            if (qualityScore >= qualityThreshold && !forceMultiEngine) {
+                                console.log(`[SearchEngine] Good results from ${approach.name}, returning immediately (forceMultiEngine is false).`);
                                 return { results, engine: approach.name };
                             }
-                            // If this is the last engine or quality is acceptable, prepare to return
+                            // If this is the last engine, we MUST return whatever we have
                             if (i === approaches.length - 1) {
-                                if (bestQuality >= qualityThreshold || !enableQualityCheck) {
-                                    console.log(`[SearchEngine] Using best results from ${bestEngine} (quality: ${bestQuality.toFixed(2)})`);
-                                    return { results: bestResults, engine: bestEngine };
-                                }
-                                else if (bestResults.length > 0) {
-                                    console.warn(`[SearchEngine] Warning: Low quality results from all engines, using best available from ${bestEngine}`);
-                                    return { results: bestResults, engine: bestEngine };
-                                }
+                                console.log(`[SearchEngine] Last engine reached, returning best results from ${bestEngine}`);
+                                return { results: bestResults, engine: bestEngine };
                             }
                             else {
-                                console.log(`[SearchEngine] ${approach.name} results quality: ${qualityScore.toFixed(2)}, continuing to try other engines...`);
+                                console.log(`[SearchEngine] Quality not sufficient or multi-engine forced, continuing waterfall...`);
                             }
                         }
                     }
@@ -103,79 +116,72 @@ export class SearchEngine {
             throw new Error(`Failed to perform search: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
-    async tryBrowserBraveSearch(query, numResults, timeout) {
-        console.log(`[SearchEngine] Trying browser-based Brave search with shared browser pool...`);
-        for (let attempt = 1; attempt <= 2; attempt++) {
-            let browser;
-            try {
-                browser = await this.browserPool.getBrowser();
-                console.log(`[SearchEngine] Brave search attempt ${attempt}/2 with shared browser`);
-                const results = await this.tryBrowserBraveSearchInternal(browser, query, numResults, timeout);
-                return results;
-            }
-            catch (error) {
-                console.error(`[SearchEngine] Brave search attempt ${attempt}/2 failed:`, error);
-                if (attempt === 2)
-                    throw error;
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-        }
-        throw new Error('All Brave search attempts failed');
-    }
-    async tryBrowserBraveSearchInternal(browser, query, numResults, timeout) {
-        if (!browser.isConnected())
-            throw new Error('Browser is not connected');
-        let context;
+    async tryStartpageSearch(query, numResults, timeout) {
+        console.log(`[SearchEngine] Trying Startpage (Axios) as high-quality fallback...`);
         try {
-            const { viewport, hasTouch, isMobile } = getRandomViewportAndDevice();
-            context = await browser.newContext({
-                userAgent: getRandomUserAgent(),
-                viewport,
-                hasTouch,
-                isMobile,
-                locale: 'en-US',
-                timezoneId: 'America/New_York',
+            const userAgent = getRandomUserAgent();
+            const searchUrl = 'https://www.startpage.com/sp/search';
+            const response = await axios.get(searchUrl, {
+                params: {
+                    query: query,
+                    cat: 'web',
+                    sc: 'xkl08PIP6K7120',
+                    lui: 'english',
+                    language: 'english',
+                    t: 'device'
+                },
+                headers: {
+                    'User-Agent': userAgent,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Referer': 'https://www.startpage.com/',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                },
+                timeout,
+                validateStatus: (status) => status === 200,
             });
-            const page = await context.newPage();
-            const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web`;
-            console.log(`[SearchEngine] Browser navigating to Brave: ${searchUrl}`);
-            await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
-            await this.dismissConsent(page);
-            // Feature #4: Brave PoW challenge grace period
-            if ((await page.title()).includes('PoW Captcha')) {
-                console.log(`[SearchEngine] Brave: PoW Captcha detected, waiting up to 8s for challenge to resolve...`);
-                try {
-                    await page.waitForSelector('[data-type="web"]', { timeout: 8000 });
-                }
-                catch {
-                    // It might time out, we'll let the next selector catch block handle logging
-                }
-            }
-            try {
-                await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
-            }
-            catch {
-                console.log(`[SearchEngine] Browser Brave results selector not found, proceeding anyway`);
-            }
-            const html = await page.content();
-            console.log(`[SearchEngine] Browser Brave got HTML with length: ${html.length}`);
-            const results = this.parseBraveResults(html, numResults);
-            if (results.length === 0) {
-                const pageTitle = await page.title().catch(() => 'unknown');
-                console.log(`[SearchEngine] Brave Debug: Page title is "${pageTitle}"`);
-            }
-            console.log(`[SearchEngine] Browser Brave parsed ${results.length} results`);
+            console.log(`[SearchEngine] Startpage got response with status: ${response.status}`);
+            const results = this.parseStartpageResults(response.data, numResults);
+            console.log(`[SearchEngine] Startpage parsed ${results.length} results`);
             return results;
         }
         catch (error) {
-            console.error(`[SearchEngine] Browser Brave search failed:`, error);
-            throw error;
+            console.error(`[SearchEngine] Startpage search failed: ${error.message}`);
+            return [];
         }
-        finally {
-            if (context) {
-                await context.close().catch((e) => console.error(`[SearchEngine] Error closing context:`, e));
+    }
+    parseStartpageResults(html, maxResults) {
+        const $ = cheerio.load(html);
+        const results = [];
+        const timestamp = generateTimestamp();
+        $('.w-gl .result, .result').each((_index, element) => {
+            if (results.length >= maxResults)
+                return false;
+            const $element = $(element);
+            const $titleLink = $element.find('a.result-title').first();
+            if ($titleLink.length) {
+                let title = $titleLink.find('.wgl-title').text().trim();
+                if (!title)
+                    title = $titleLink.text().trim();
+                const url = $titleLink.attr('href') || '';
+                const snippet = $element.find('.description').text().trim();
+                if (title && url && url.startsWith('http')) {
+                    results.push({
+                        title,
+                        url,
+                        description: snippet || 'No description available',
+                        fullContent: '',
+                        contentPreview: '',
+                        wordCount: 0,
+                        timestamp,
+                        fetchStatus: 'success'
+                    });
+                }
             }
-        }
+        });
+        return results;
     }
     async tryBrowserBingSearch(query, numResults, timeout) {
         const debugBing = this.config.debugBingSearch;
@@ -189,7 +195,17 @@ export class SearchEngine {
                 const launchTime = Date.now() - startTime;
                 console.log(`[SearchEngine] BING: Browser acquired successfully in ${launchTime}ms, connected: ${browser.isConnected()}`);
                 const results = await this.tryBrowserBingSearchInternal(browser, query, numResults, timeout);
-                console.log(`[SearchEngine] BING: Search completed successfully with ${results.length} results`);
+                if (results.length > 0) {
+                    console.log(`[SearchEngine] BING: Search completed successfully with ${results.length} results`);
+                    return results;
+                }
+                if (attempt === 1) {
+                    console.log(`[SearchEngine] BING: Cold-start detected (0 results). Retrying with warmed session...`);
+                    // Brief pause before retry
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    continue;
+                }
+                console.log(`[SearchEngine] BING: Search finished with 0 results after ${attempt} attempts`);
                 return results;
             }
             catch (error) {
@@ -201,11 +217,10 @@ export class SearchEngine {
                     console.error(`[SearchEngine] BING: All attempts exhausted, giving up`);
                     throw error;
                 }
-                console.log(`[SearchEngine] BING: Waiting 500ms before retry...`);
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
-        throw new Error('All Bing search attempts failed');
+        return [];
     }
     async tryBrowserBingSearchInternal(browser, query, numResults, timeout) {
         const debugBing = this.config.debugBingSearch;
@@ -248,12 +263,8 @@ export class SearchEngine {
                 console.log(`[SearchEngine] BING: Enhanced search returned ${results.length} results`);
             }
             catch (enhancedError) {
-                const errorMessage = enhancedError instanceof Error ? enhancedError.message : 'Unknown error';
-                console.error(`[SearchEngine] BING: Enhanced search failed: ${errorMessage}`);
-                if (debugBing)
-                    console.error(`[SearchEngine] BING: Enhanced search error details:`, enhancedError);
+                console.log(`[SearchEngine] BING: Enhanced search failed, will try direct search if no results.`);
             }
-            // Finding #1: Fallback to direct search if enhanced returned 0 results OR crashed
             if (results.length === 0) {
                 console.log(`[SearchEngine] BING: Enhanced search empty or failed, closing page and trying direct URL search...`);
                 await page.close().catch((e) => console.error(`[SearchEngine] BING: Error closing page:`, e));
@@ -286,7 +297,21 @@ export class SearchEngine {
         await page.waitForTimeout(500);
         try {
             console.log(`[SearchEngine] BING: Looking for search form elements...`);
-            await page.waitForSelector('#sb_form_q', { timeout: 2000 });
+            // Finding #1: Increase timeout to 4000ms to allow captcha to load if present
+            try {
+                await page.waitForSelector('#sb_form_q', { timeout: 4000 });
+            }
+            catch (timeoutError) {
+                // Finding #2: If search box not found, check for captcha
+                const handled = await this.handleBingCaptcha(page);
+                if (handled) {
+                    console.log(`[SearchEngine] BING: Captcha handled, retrying search box detection...`);
+                    await page.waitForSelector('#sb_form_q', { timeout: 5000 });
+                }
+                else {
+                    throw timeoutError;
+                }
+            }
             console.log(`[SearchEngine] BING: Search box found, filling with query: "${query}"`);
             await page.fill('#sb_form_q', query);
             // Feature #1: Human-mimicry jitter before search button click
@@ -306,7 +331,6 @@ export class SearchEngine {
             console.error(`[SearchEngine] BING: Search form submission failed: ${errorMessage}`);
             throw formError;
         }
-        await this.dismissConsent(page);
         try {
             console.log(`[SearchEngine] BING: Waiting for search results to appear...`);
             await page.waitForSelector('.b_algo, .b_result', { timeout: 3000 });
@@ -330,12 +354,37 @@ export class SearchEngine {
         console.log(`[SearchEngine] BING: Direct search with enhanced parameters...`);
         const cvid = this.generateConversationId();
         const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=${Math.min(numResults, 10)}&form=QBLH&sp=-1&qs=n&cvid=${cvid}`;
-        console.log(`[SearchEngine] BING: Navigating to direct URL: ${searchUrl}`);
         const startTime = Date.now();
-        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
-        const loadTime = Date.now() - startTime;
-        console.log(`[SearchEngine] BING: Direct page loaded in ${loadTime}ms`);
-        await this.dismissConsent(page);
+        try {
+            console.log(`[SearchEngine] BING: Navigating to direct URL: ${searchUrl}`);
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
+            const loadTime = Date.now() - startTime;
+            console.log(`[SearchEngine] BING: Direct page loaded in ${loadTime}ms URL: ${page.url().substring(0, 50)}...`);
+            // Feature #1: Handle redirect stability for interstitial pages
+            if (page.url().includes('rdr=1') || page.url().includes('rdrig=')) {
+                console.log(`[SearchEngine] BING: Direct search hit redirect/interstitial. Waiting for stability...`);
+                await page.waitForLoadState('load', { timeout: 5000 }).catch(() => { });
+                await page.waitForTimeout(1000);
+            }
+            await this.dismissConsent(page);
+            // Check for captcha or security challenge
+            const hasChallenge = await page.evaluate(() => {
+                const text = document.body.innerText;
+                return !!(document.querySelector('.captcha') ||
+                    document.querySelector('#turnstile-wrapper') ||
+                    document.querySelector('#challenge-stage') ||
+                    text.includes('Verify you are human') ||
+                    text.includes('One last step') ||
+                    text.includes('Checking your browser'));
+            });
+            if (hasChallenge) {
+                console.log(`[SearchEngine] BING: Direct search hit a challenge page. Attempting bypass...`);
+                await this.handleBingCaptcha(page);
+            }
+        }
+        catch (e) {
+            console.error(`[SearchEngine] BING: Direct search navigation error:`, e);
+        }
         try {
             console.log(`[SearchEngine] BING: Waiting for search results to appear...`);
             await page.waitForSelector('.b_algo, .b_result', { timeout: 3000 });
@@ -394,44 +443,6 @@ export class SearchEngine {
             console.error(`[SearchEngine] DuckDuckGo search failed`);
             throw error;
         }
-    }
-    parseBraveResults(html, maxResults) {
-        const $ = cheerio.load(html);
-        const results = [];
-        const timestamp = generateTimestamp();
-        const resultSelectors = ['[data-type="web"]', '.result', '.fdb'];
-        for (const selector of resultSelectors) {
-            if (results.length >= maxResults)
-                break;
-            const elements = $(selector);
-            elements.each((_index, element) => {
-                if (results.length >= maxResults)
-                    return false;
-                const $element = $(element);
-                const titleSelectors = ['.title a', 'h2 a', '.result-title a', 'a[href*="://"]'];
-                let title = '';
-                let url = '';
-                for (const titleSelector of titleSelectors) {
-                    const $titleElement = $element.find(titleSelector).first();
-                    if ($titleElement.length) {
-                        title = $titleElement.text().trim();
-                        url = $titleElement.attr('href') || '';
-                        if (title && url && url.startsWith('http'))
-                            break;
-                    }
-                }
-                const snippet = $element.find('.snippet-content, .snippet, .description, p').first().text().trim();
-                if (title && url && url.startsWith('http')) {
-                    results.push({
-                        title,
-                        url: this.cleanBraveUrl(url),
-                        description: snippet || 'No description available',
-                        fullContent: '', contentPreview: '', wordCount: 0, timestamp, fetchStatus: 'success',
-                    });
-                }
-            });
-        }
-        return results;
     }
     parseBingResults(html, maxResults) {
         const $ = cheerio.load(html);
@@ -521,33 +532,102 @@ export class SearchEngine {
             await this.browserPool.closeAll();
         }
     }
-    // Finding #3: Dismiss cookie consent / "Before you continue" walls
-    async dismissConsent(page) {
-        const selectors = [
-            '#bnp_btn_accept', // Bing cookie consent
-            '#bnp_ttc_close', // Bing "take a tour" close
-            'button[id*="accept"]', // Generic accept buttons
-            'button[id*="consent"]', // Generic consent buttons
-            'button.accept', // Brave consent
-            '.modal-footer button', // Brave modal
-            '#onetrust-accept-btn-handler', // OneTrust (common third-party)
-            'button[aria-label*="Accept"]', // ARIA-labelled accept buttons
-        ];
+    async handleBingCaptcha(page) {
+        const url = page.url();
+        const isRedirect = url.includes('rdr=1') || url.includes('rdrig=');
+        if (isRedirect) {
+            console.log(`[SearchEngine] BING: Detected redirect state ($rdr=1). Waiting for stability...`);
+            await page.waitForLoadState('domcontentloaded').catch(() => { });
+            await page.waitForTimeout(1000);
+        }
+        console.log(`[SearchEngine] BING: Anti-bot challenge detected. Attempting bypass with 8s polling...`);
         try {
-            for (const selector of selectors) {
-                const element = await page.$(selector);
-                if (element) {
-                    const isVisible = await element.isVisible().catch(() => false);
-                    if (isVisible) {
-                        console.log(`[SearchEngine] Consent: Clicking "${selector}"`);
-                        await element.click();
-                        await page.waitForTimeout(500);
+            const checkboxSelector = '.ctp-checkbox-label, #challenge-stage, input[type="checkbox"]';
+            let targetFrame = null;
+            let box = null;
+            // Finding #1: Poll for the checkbox even if it's in a late-loading frame
+            for (let attempt = 1; attempt <= 8; attempt++) {
+                const frames = page.frames();
+                // Check main page first
+                if (await page.isVisible(checkboxSelector)) {
+                    targetFrame = page;
+                    box = await page.$(checkboxSelector);
+                }
+                else {
+                    // Check all frames
+                    for (const frame of frames) {
+                        try {
+                            if (await frame.isVisible(checkboxSelector)) {
+                                targetFrame = frame;
+                                box = await frame.$(checkboxSelector);
+                                break;
+                            }
+                        }
+                        catch (fErr) { /* Ignore frame access errors */ }
                     }
+                }
+                if (box) {
+                    console.log(`[SearchEngine] BING: Interaction point found on attempt ${attempt}!`);
+                    break;
+                }
+                if (attempt % 4 === 0)
+                    console.log(`[SearchEngine] BING: Still polling for captcha elements... (${attempt}/8)`);
+                await page.waitForTimeout(1000);
+            }
+            if (!box || !targetFrame) {
+                console.log(`[SearchEngine] BING: Could not find captcha interaction point after 8s.`);
+                return false;
+            }
+            const boundingBox = await box.boundingBox();
+            if (boundingBox) {
+                // Feature #1: Enhanced human-mimicking mouse movement
+                console.log(`[SearchEngine] BING: Performing human-like click on verification box...`);
+                const centerX = boundingBox.x + boundingBox.width / 2;
+                const centerY = boundingBox.y + boundingBox.height / 2;
+                // Move mouse in a slightly non-linear way with randomized jitter
+                await page.mouse.move(centerX - 100 + Math.random() * 50, centerY - 100 + Math.random() * 50);
+                await page.waitForTimeout(100 + Math.random() * 200);
+                await page.mouse.move(centerX, centerY, { steps: 10 });
+                await page.waitForTimeout(200 + Math.random() * 300);
+                await page.mouse.click(centerX, centerY);
+                console.log(`[SearchEngine] BING: Click performed, waiting for challenge to clear...`);
+                // Wait for navigation or for the captcha container to disappear
+                await page.waitForTimeout(4000);
+                const stillBlocked = await page.evaluate(() => {
+                    return !!(document.querySelector('.captcha') ||
+                        document.querySelector('#turnstile-wrapper') ||
+                        document.body.innerText.includes('Verify you are human') ||
+                        document.body.innerText.includes('One last step'));
+                });
+                if (!stillBlocked) {
+                    console.log(`[SearchEngine] BING: Challenge appears to be cleared!`);
+                    return true;
+                }
+                else {
+                    console.log(`[SearchEngine] BING: Challenge still present after click.`);
+                }
+            }
+            return false;
+        }
+        catch (error) {
+            console.error(`[SearchEngine] BING: Error during captcha detection/handling:`, error);
+            return false;
+        }
+    }
+    async dismissConsent(page) {
+        try {
+            // Common Bing consent buttons
+            const selectors = ['#bnp_btn_accept', '#adlt_set_save', '.bnp_btn_accept'];
+            for (const selector of selectors) {
+                if (await page.isVisible(selector)) {
+                    console.log(`[SearchEngine] BING: Dismissing consent banner (${selector})`);
+                    await page.click(selector).catch(() => { });
+                    await page.waitForTimeout(500);
                 }
             }
         }
         catch (e) {
-            // Consent dismissal is best-effort, never block on failure
+            // Ignore dismiss errors
         }
     }
 }

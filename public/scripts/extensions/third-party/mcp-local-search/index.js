@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS = {
     enabled: false,
     numResults: 10,
     maxContentLength: 15000,
-    preferredEngine: 'bing',
+    preferredEngine: 'auto',
     forceMultiEngine: false,
     disabledTools: [],
 };

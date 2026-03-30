@@ -1,6 +1,28 @@
-# 📋 Changelog Delta: v1.1.1 ➔ v1.2.6
+# 📋 Changelog Delta: v1.1.1 ➔ v1.3.2
 
 This delta summarizes the major improvements, fixes, and architectural changes since version 1.1.1.
+
+## [1.3.2] - 2026-03-30
+### Added
+- **2-Minute Idle Timeout**: Browsers now automatically close after 120s of inactivity to release system RAM.
+- **Global Shutdown Guards**: Registered SIGINT/SIGTERM handlers to ensure no orphaned Chromium processes remain after SillyTavern closure.
+- **Parallel Success Switch**: Implemented a "Shared State" object allowing parallel engines to signal success and trigger instant aborts of slow partners (like Bing).
+
+### Fixed
+- **Bing Granular Aborts**: Bing now checks for parallel success before its "human-thought" wait and before direct search attempts.
+
+## [1.3.1] - 2026-03-30
+### Added
+- **Dynamic Quality Threshold**: Parallel search now respects your personal Quality Threshold (e.g. 0.3) instead of requiring a hardcoded 0.8 to exit early.
+- **Bing Retry Suppression**: Bing now skips its 15s cold-start retry if a parallel partner (Startpage/DDG) has already found results.
+- **Improved Parallel Logs**: Added explicit quality scores for all parallel search results in the terminal.
+
+## [1.3.0] - 2026-03-30
+### Added
+- **🎲 Parallel Stealth Search**: Major architectural shift that randomizes engine order ('Auto' mode) and launches multiple engines in parallel for maximum speed and anti-bot resistance.
+- **Auto (Randomized & Stealth) Mode**: New default engine that shuffles Bing, Startpage, and DuckDuckGo for every request to evade pattern detection.
+- **Hybrid Parallel Execution**: Replaced sequential waterfall with `Promise.allSettled` for the first two engines.
+- **v1.3.0 "Parallel Stealth" release**: Milestone release focusing on performance and reliability.
 
 ## [1.2.6] - 2026-03-30
 ### Added

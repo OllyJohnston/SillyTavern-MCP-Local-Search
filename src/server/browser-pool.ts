@@ -18,9 +18,30 @@ export class BrowserPool {
     this.browserTypes = config.browserTypes;
     
     console.log(`[BrowserPool] Configuration: maxBrowsers=${this.maxBrowsers}, headless=${this.headless}, types=${this.browserTypes.join(',')}, noSandbox=${this.config.playwrightNoSandbox}`);
+    
+    // Start initial idle timer
+    this.resetIdleTimer();
+  }
+
+  private idleTimer: NodeJS.Timeout | null = null;
+  private readonly IDLE_TIMEOUT_MS = 120000; // 2 minutes
+
+  private resetIdleTimer() {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+    }
+    this.idleTimer = setTimeout(async () => {
+      if (this.browsers.size > 0) {
+        console.log(`[BrowserPool] Idle limit reached (2m), releasing browser processes to free memory`);
+        await this.closeAll();
+      }
+    }, this.IDLE_TIMEOUT_MS);
   }
 
   async getBrowser(): Promise<Browser> {
+    // Activity detected, reset the idle timer
+    this.resetIdleTimer();
+    
     // Rotate between browser types for variety
     const browserType = this.browserTypes[this.currentBrowserIndex % this.browserTypes.length];
     this.currentBrowserIndex++;

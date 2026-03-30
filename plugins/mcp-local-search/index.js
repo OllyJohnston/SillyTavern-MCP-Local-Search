@@ -40,7 +40,7 @@ export async function init(router) {
                 return res.status(400).json({ error: 'Query is required' });
             // Merge defaults with request-specific options
             const activeConfig = { ...defaultConfig, ...options };
-            console.log(`[MCPLocalSearch] Received search request: "${query}" (limit: ${limit})`);
+            console.log(`[MCPLocalSearch] Received search request: "${query}" (limit: ${limit})`, { options });
             const results = await searchEngine.search({
                 query,
                 numResults: limit,
@@ -91,5 +91,5 @@ export const info = {
     name: 'MCP Local Search',
     description: 'Native high-quality local search and scraping using Playwright.',
     author: 'Olly Johnston',
-    version: '1.2.4',
+    version: '1.2.6',
 };

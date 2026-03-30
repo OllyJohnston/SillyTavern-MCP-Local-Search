@@ -87,6 +87,19 @@ export async function init(router: Router) {
   });
 
   console.log('[MCPLocalSearch] Plugin endpoints registered successfully.');
+  
+  // Register process signal handlers for clean exit
+  process.on('SIGINT', async () => {
+    console.log('[MCPLocalSearch] Received SIGINT (Ctrl+C), performing clean shutdown...');
+    await exit();
+    process.exit(0);
+  });
+  
+  process.on('SIGTERM', async () => {
+    console.log('[MCPLocalSearch] Received SIGTERM (shudown), performing clean shutdown...');
+    await exit();
+    process.exit(0);
+  });
 }
 
 /**
@@ -107,5 +120,5 @@ export const info = {
   name: 'MCP Local Search',
   description: 'Native high-quality local search and scraping using Playwright.',
   author: 'Olly Johnston',
-  version: '1.2.6',
+  version: '1.3.2',
 };
