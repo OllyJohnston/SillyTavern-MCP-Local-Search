@@ -33,5 +33,6 @@ This delta summarizes the major improvements, fixes, and architectural changes s
 ## [1.2.0] - 2026-03-27
 ### Added
 - **Shared Browser Pool**: Implemented a global browser management system to reduce memory usage and startup latency.
+- **Advanced Browser Fingerprinting**: Randomized **User-Agents**, **Viewports**, and **Canvas/Hardware signatures** to evade bot detection and captchas.
 - **Smart Content Extraction**: Improved the `extract_content` tool with a hybrid Playwright/Cheerio parser for better readability.
 - **Memory Optimization**: Added recommended V8 flags to the README for stable long-term operation.
