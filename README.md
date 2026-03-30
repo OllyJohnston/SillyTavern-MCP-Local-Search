@@ -33,7 +33,7 @@ The easiest way to install or update is to use the **SillyTavern-MCP-Local-Searc
 2. Extract the contents directly into your **SillyTavern root** directory.
 3. The folders will automatically merge into the correct `plugins/` and `public/` directories.
 
-### 2. Manual Deployment (Step-by-Step)
+### 2. Manual Configuration (Prerequisites)
 
 #### **Prerequisites**
 - **Node.js**: Version 18 or higher.
@@ -43,7 +43,7 @@ The easiest way to install or update is to use the **SillyTavern-MCP-Local-Searc
 
 ---
 
-### 2. Manual Deployment (Step-by-Step)
+### 3. Manual Deployment (Step-by-Step)
 
 #### **Step A: Server Plugin (Backend)**
 Copy the folder `plugins/mcp-local-search` from this repository into your SillyTavern root's `plugins/` directory.
@@ -59,7 +59,7 @@ Copy the folder `public/scripts/extensions/third-party/mcp-local-search` from th
 
 ---
 
-### 3. Final Directory Layout
+### 4. Final Directory Layout
 Your SillyTavern installation should look like this:
 
 ```text
