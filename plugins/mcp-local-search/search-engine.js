@@ -240,26 +240,46 @@ export class SearchEngine {
             console.log(`[SearchEngine] BING: Context created, opening new page...`);
             let page = await context.newPage();
             console.log(`[SearchEngine] BING: Page opened successfully`);
-            // Try enhanced search first (homepage interaction)
+            // Feature v1.2.4: "Warmed Direct" Search (Priority #1)
+            // We navigate to the homepage first to establish session/cookies (Anti-Bot),
+            // then perform a direct URL search (Classic HTML structure). 
+            // This is much faster than form-filling and stays out of the SPA shell.
             let results = [];
             try {
-                console.log(`[SearchEngine] BING: Attempting enhanced search (homepage → form submission)...`);
-                results = await this.tryEnhancedBingSearch(page, query, numResults, timeout);
-                console.log(`[SearchEngine] BING: Enhanced search returned ${results.length} results`);
+                console.log(`[SearchEngine] BING: Attempting "Warmed Direct" search (Session warmup → Direct URL)...`);
+                // Phase 1: Warming up the session on the homepage
+                // Wait only for 'domcontentloaded' to save time
+                await page.goto('https://www.bing.com', { waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => { });
+                await this.dismissConsent(page);
+                // Phase 2: Direct navigation while the context is "warm"
+                const cvid = this.generateConversationId();
+                const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=${Math.min(numResults, 10)}&form=QBLH&sp=-1&qs=n&cvid=${cvid}`;
+                console.log(`[SearchEngine] BING: Session warmed, navigating to direct URL: ${searchUrl}`);
+                await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
+                await this.dismissConsent(page);
+                try {
+                    console.log(`[SearchEngine] BING: Waiting for search results to appear...`);
+                    await page.waitForSelector('.b_algo, .b_result', { timeout: 3000 });
+                }
+                catch {
+                    console.log(`[SearchEngine] BING: Search results selector not found in "Warmed Direct" attempt`);
+                }
+                const html = await page.content();
+                results = this.parseBingResults(html, numResults);
+                console.log(`[SearchEngine] BING: "Warmed Direct" returned ${results.length} results`);
+                // If "Warmed Direct" fails or returns 0 results, fall back to the slow "Enhanced" search logic
+                if (results.length === 0) {
+                    console.log(`[SearchEngine] BING: "Warmed Direct" failed or empty, falling back to full "Enhanced" (form submission) logic...`);
+                    results = await this.tryEnhancedBingSearch(page, query, numResults, timeout);
+                    console.log(`[SearchEngine] BING: Full Enhanced fallback returned ${results.length} results`);
+                }
             }
-            catch (enhancedError) {
-                const errorMessage = enhancedError instanceof Error ? enhancedError.message : 'Unknown error';
-                console.error(`[SearchEngine] BING: Enhanced search failed: ${errorMessage}`);
-                if (debugBing)
-                    console.error(`[SearchEngine] BING: Enhanced search error details:`, enhancedError);
-            }
-            // Finding #1: Fallback to direct search if enhanced returned 0 results OR crashed
-            if (results.length === 0) {
-                console.log(`[SearchEngine] BING: Enhanced search empty or failed, closing page and trying direct URL search...`);
-                await page.close().catch((e) => console.error(`[SearchEngine] BING: Error closing page:`, e));
+            catch (error) {
+                console.error(`[SearchEngine] BING: Primary search path failed, trying direct fallback as a last resort: ${error.message}`);
+                // Last-ditch effort: fresh page direct URL (even as suspect)
+                await page.close().catch(() => { });
                 page = await context.newPage();
                 results = await this.tryDirectBingSearch(page, query, numResults, timeout);
-                console.log(`[SearchEngine] BING: Direct search returned ${results.length} results`);
             }
             return results;
         }
