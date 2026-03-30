@@ -59,19 +59,25 @@ function getSettings() {
 }
 
 function initializeDefaultSettings() {
-    globalContext.extensionSettings[EXTENSION_SETTINGS_KEY] =
-        globalContext.extensionSettings?.[EXTENSION_SETTINGS_KEY] || {};
+    if (!globalContext.extensionSettings[EXTENSION_SETTINGS_KEY]) {
+        globalContext.extensionSettings[EXTENSION_SETTINGS_KEY] = {};
+    }
 
     const settings = globalContext.extensionSettings[EXTENSION_SETTINGS_KEY];
+    let changed = false;
 
     // Fill in any missing defaults
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
         if (settings[key] === undefined) {
             settings[key] = DEFAULT_SETTINGS[key];
+            changed = true;
         }
     }
 
-    globalContext.saveSettingsDebounced();
+    if (changed) {
+        console.log('[MCP Local Search] Initialized default settings:', settings);
+        globalContext.saveSettingsDebounced();
+    }
 }
 
 // ============================================================

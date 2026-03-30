@@ -49,7 +49,7 @@ export async function init(router: Router) {
       // Merge defaults with request-specific options
       const activeConfig: ServerConfig = { ...defaultConfig, ...options };
       
-      console.log(`[MCPLocalSearch] Received search request: "${query}" (limit: ${limit})`);
+      console.log(`[MCPLocalSearch] Received search request: "${query}" (limit: ${limit})`, { options });
       
       const results = await searchEngine!.search({ 
         query, 
@@ -107,5 +107,5 @@ export const info = {
   name: 'MCP Local Search',
   description: 'Native high-quality local search and scraping using Playwright.',
   author: 'Olly Johnston',
-  version: '1.2.4',
+  version: '1.2.6',
 };

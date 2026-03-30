@@ -10,10 +10,13 @@ Built with **Playwright**, it achieves full feature parity with the original `bm
 
 - **🚀 Autonomous AI Tool Calling**: Characters can automatically search the web and extract content to answer your questions in real-time.
 - **🛡️ Clash-Free Architecture**: Fully rebranded to `mcp-local-search` with unique template and CSS names to prevent conflicts with other extensions.
-- **🧭 Multi-Engine Support**: Seamlessly orchestrates Bing, Brave, and DuckDuckGo for the most reliable results.
+- **🧭 Multi-Engine Support**: Seamlessly orchestrates **Bing**, **DuckDuckGo**, and **Startpage** for the most reliable, high-relevance results.
+- **⚡ Ultra-High Quality Exit**: Automatically stops searching as soon as 100% relevance is achieved, saving time and API resources.
+- **🎯 Dynamic Waterfall**: You can now choose your preferred engine in the UI, and the search waterfall will dynamically prioritize it.
 - **📑 Enhanced Scraper**: Uses Playwright and Cheerio to extract clean, readable text from even the most complex JavaScript-heavy websites.
 - **📊 Shared Browser Pool**: High-performance instance management that minimizes memory spikes and maximizes speed.
 - **⚙️ Integrated UI**: Professional settings drawer in the Extensions menu with a "Manage Tools" popup for real-time configuration.
+- **📦 Pre-built Installation**: Support for a one-click ZIP release that matches the SillyTavern plugin structure.
 
 ---
 
@@ -21,7 +24,15 @@ Built with **Playwright**, it achieves full feature parity with the original `bm
 
 This project consists of two parts: a **Server Plugin** (Backend) and a **UI Extension** (Frontend).
 
-### 1. Prerequisites
+### 1. Pre-built Release (Recommended)
+The easiest way to install or update is to use the **SillyTavern-MCP-Local-Search-v1.2.6.zip** release:
+1. Download the latest `.zip` release.
+2. Extract the contents directly into your **SillyTavern root** directory.
+3. The folders will automatically merge into the correct `plugins/` and `public/` directories.
+
+### 2. Manual Deployment (Step-by-Step)
+
+#### **Prerequisites**
 - **Node.js**: Version 18 or higher.
 - **SillyTavern**: Installed and running locally.
 - **Server Plugins**: Ensure `enableServerPlugins: true` is set in your SillyTavern `config.yaml`.
@@ -121,12 +132,11 @@ You can fine-tune the search behavior via the **Manage Tools** popup. Each optio
   - *Range*: 1,000 to 50,000 characters.
   - *Tip*: Increase this if you find that articles are being cut off too early.
 - **🔍 Preferred Engine**: Select your primary search provider.
-  - **Bing (Direct)**: Fast and comprehensive.
-  - **Brave (Privacy Focus)**: Excellent for privacy-conscious searching.
+  - **Bing (Direct)**: Fast and comprehensive (uses browser automation).
+  - **Startpage (High Quality)**: Excellent results with direct HTML parsing (no browser needed).
   - **DuckDuckGo (Fallback)**: Reliable backup if other engines are blocked.
 - **⚡ Force Multi-Engine Search**: When enabled, the extension will search across **all** supported engines simultaneously.
-  - *Benefit*: Dramagingly increases the chance of finding niche information and provides a richer set of results.
-  - *Note*: This uses more system resources as multiple browser tabs are opened at once.
+  - *Note*: If an engine returns **100% relevance** (1.0 quality score), the search will terminate immediately regardless of this toggle for maximum efficiency.
 
 ---
 

@@ -23,6 +23,8 @@ export interface SearchOptions {
   query: string;
   numResults?: number;
   timeout?: number;
+  preferredEngine?: string;
+  forceMultiEngine?: boolean;
 }
 
 export interface ContentExtractionOptions {

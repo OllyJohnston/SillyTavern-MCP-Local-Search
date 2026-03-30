@@ -26,20 +26,36 @@ export class SearchEngine {
       return await this.rateLimiter.execute(async () => {
         console.log(`[SearchEngine] Starting search with multiple engines...`);
 
-        // Configuration from environment variables
+        // Configuration from options with fallbacks to environment config
         const enableQualityCheck = this.config.enableRelevanceChecking;
         const qualityThreshold = this.config.relevanceThreshold;
-        const forceMultiEngine = this.config.forceMultiEngineSearch;
+        // Use per-request override if available, otherwise use global config
+        const forceMultiEngine = options.forceMultiEngine !== undefined ? options.forceMultiEngine : this.config.forceMultiEngineSearch;
         const debugBrowsers = this.config.debugBrowserLifecycle;
 
-        console.log(`[SearchEngine] Quality checking: ${enableQualityCheck}, threshold: ${qualityThreshold}, multi-engine: ${forceMultiEngine}, debug: ${debugBrowsers}`);
+        console.log(`[SearchEngine] Search configuration:`, { 
+          enableQualityCheck, 
+          qualityThreshold, 
+          forceMultiEngine, 
+          preferredEngine: options.preferredEngine 
+        });
 
-        // Try multiple approaches to get search results, starting with most reliable
-        const approaches = [
-          { method: this.tryBrowserBingSearch.bind(this), name: 'Browser Bing' },
-          { method: this.tryBrowserBraveSearch.bind(this), name: 'Browser Brave' },
-          { method: this.tryDuckDuckGoSearch.bind(this), name: 'Axios DuckDuckGo' }
+        // Try multiple approaches to get search results, starting with preferred engine
+        const allApproaches = [
+          { method: this.tryBrowserBingSearch.bind(this), name: 'Browser Bing', id: 'bing' },
+          { method: this.tryDuckDuckGoSearch.bind(this), name: 'Axios DuckDuckGo', id: 'duckduckgo' },
+          { method: this.tryStartpageSearch.bind(this), name: 'Axios Startpage', id: 'startpage' }
         ];
+
+        // Prioritize the preferred engine if provided (defaults to bing)
+        const preferredId = options.preferredEngine || 'bing';
+        console.log(`[SearchEngine] Prioritizing engine ID: "${preferredId}"`);
+
+        const approaches = [
+          ...allApproaches.filter(a => a.id === preferredId),
+          ...allApproaches.filter(a => a.id !== preferredId)
+        ];
+        console.log(`[SearchEngine] Effective waterfall: ${approaches.map(a => a.name).join(' -> ')}`);
 
         let bestResults: SearchResult[] = [];
         let bestEngine = 'None';
@@ -48,48 +64,50 @@ export class SearchEngine {
         for (let i = 0; i < approaches.length; i++) {
           const approach = approaches[i];
           try {
-            console.log(`[SearchEngine] Attempting ${approach.name} (${i + 1}/${approaches.length})...`);
+            console.log(`[SearchEngine] [${i + 1}/${approaches.length}] Attempting ${approach.name}...`);
 
             // Use more aggressive timeouts for faster fallback
-            const approachTimeout = Math.min(timeout / 3, 10000); // Max 10 seconds per approach for faster fallback
+            const approachTimeout = Math.min(timeout / 3, 10000); 
             const results = await approach.method(sanitizedQuery, numResults, approachTimeout);
-            if (results.length > 0) {
+            
+            if (results && results.length > 0) {
               console.log(`[SearchEngine] Found ${results.length} results with ${approach.name}`);
 
-              // Validate result quality to detect irrelevant results
               const qualityScore = enableQualityCheck ? this.assessResultQuality(results, sanitizedQuery) : 1.0;
               console.log(`[SearchEngine] ${approach.name} quality score: ${qualityScore.toFixed(2)}/1.0`);
 
-              // Track the best results so far
               if (qualityScore > bestQuality) {
                 bestResults = results;
                 bestEngine = approach.name;
                 bestQuality = qualityScore;
               }
 
-              // If quality is excellent, return immediately (unless forcing multi-engine)
+              // EXIT LOGIC:
+              // 1. Ultra-high quality results (score >= 0.95) - return immediately regardless of multi-engine toggle
+              if (qualityScore >= 0.95) {
+                console.log(`[SearchEngine] Ultra-high quality results from ${approach.name} (100% relevance), returning immediately.`);
+                return { results, engine: approach.name };
+              }
+
+              // 2. Excellent results (score >= 0.8) and NOT forcing multi-engine
               if (qualityScore >= 0.8 && !forceMultiEngine) {
-                console.log(`[SearchEngine] Excellent quality results from ${approach.name}, returning immediately`);
+                console.log(`[SearchEngine] Excellent results from ${approach.name}, returning immediately.`);
                 return { results, engine: approach.name };
               }
 
-              // If quality is acceptable and this isn't Bing (first engine), return
-              if (qualityScore >= qualityThreshold && approach.name !== 'Browser Bing' && !forceMultiEngine) {
-                console.log(`[SearchEngine] Good quality results from ${approach.name}, using as primary`);
+              // 2. Acceptable results (score >= threshold) and NOT forcing multi-engine
+              // Note: Removed the Bing-specific exclusion here to allow returning immediately from ANY first engine if preferred
+              if (qualityScore >= qualityThreshold && !forceMultiEngine) {
+                console.log(`[SearchEngine] Good results from ${approach.name}, returning immediately (forceMultiEngine is false).`);
                 return { results, engine: approach.name };
               }
 
-              // If this is the last engine or quality is acceptable, prepare to return
+              // If this is the last engine, we MUST return whatever we have
               if (i === approaches.length - 1) {
-                if (bestQuality >= qualityThreshold || !enableQualityCheck) {
-                  console.log(`[SearchEngine] Using best results from ${bestEngine} (quality: ${bestQuality.toFixed(2)})`);
-                  return { results: bestResults, engine: bestEngine };
-                } else if (bestResults.length > 0) {
-                  console.warn(`[SearchEngine] Warning: Low quality results from all engines, using best available from ${bestEngine}`);
-                  return { results: bestResults, engine: bestEngine };
-                }
+                console.log(`[SearchEngine] Last engine reached, returning best results from ${bestEngine}`);
+                return { results: bestResults, engine: bestEngine };
               } else {
-                console.log(`[SearchEngine] ${approach.name} results quality: ${qualityScore.toFixed(2)}, continuing to try other engines...`);
+                console.log(`[SearchEngine] Quality not sufficient or multi-engine forced, continuing waterfall...`);
               }
             }
           } catch (error) {
@@ -120,75 +138,77 @@ export class SearchEngine {
     }
   }
 
-  private async tryBrowserBraveSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
-    console.log(`[SearchEngine] Trying browser-based Brave search with shared browser pool...`);
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      let browser;
-      try {
-        browser = await this.browserPool.getBrowser();
-        console.log(`[SearchEngine] Brave search attempt ${attempt}/2 with shared browser`);
-        const results = await this.tryBrowserBraveSearchInternal(browser, query, numResults, timeout);
-        return results;
-      } catch (error) {
-        console.error(`[SearchEngine] Brave search attempt ${attempt}/2 failed:`, error);
-        if (attempt === 2) throw error;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+  private async tryStartpageSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
+    console.log(`[SearchEngine] Trying Startpage (Axios) as high-quality fallback...`);
+    try {
+      const userAgent = getRandomUserAgent();
+      const searchUrl = 'https://www.startpage.com/sp/search';
+      const response = await axios.get(searchUrl, {
+        params: {
+          query: query,
+          cat: 'web',
+          sc: 'xkl08PIP6K7120',
+          lui: 'english',
+          language: 'english',
+          t: 'device'
+        },
+        headers: {
+          'User-Agent': userAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Referer': 'https://www.startpage.com/',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        timeout,
+        validateStatus: (status: number) => status === 200,
+      });
+
+      console.log(`[SearchEngine] Startpage got response with status: ${response.status}`);
+      const results = this.parseStartpageResults(response.data, numResults);
+      console.log(`[SearchEngine] Startpage parsed ${results.length} results`);
+      return results;
+    } catch (error: any) {
+      console.error(`[SearchEngine] Startpage search failed: ${error.message}`);
+      return [];
     }
-    throw new Error('All Brave search attempts failed');
   }
 
-  private async tryBrowserBraveSearchInternal(browser: any, query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
-    if (!browser.isConnected()) throw new Error('Browser is not connected');
-    let context;
-    try {
-      const { viewport, hasTouch, isMobile } = getRandomViewportAndDevice();
-      context = await browser.newContext({
-        userAgent: getRandomUserAgent(),
-        viewport,
-        hasTouch,
-        isMobile,
-        locale: 'en-US',
-        timezoneId: 'America/New_York',
-      });
-      const page = await context.newPage();
-      const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web`;
-      console.log(`[SearchEngine] Browser navigating to Brave: ${searchUrl}`);
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
-      await this.dismissConsent(page);
+  private parseStartpageResults(html: string, maxResults: number): SearchResult[] {
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+    const timestamp = generateTimestamp();
+
+    $('.w-gl .result, .result').each((_index, element) => {
+      if (results.length >= maxResults) return false;
+
+      const $element = $(element);
+      const $titleLink = $element.find('a.result-title').first();
       
-      // Feature #4: Brave PoW challenge grace period
-      if ((await page.title()).includes('PoW Captcha')) {
-        console.log(`[SearchEngine] Brave: PoW Captcha detected, waiting up to 8s for challenge to resolve...`);
-        try {
-          await page.waitForSelector('[data-type="web"]', { timeout: 8000 });
-        } catch {
-          // It might time out, we'll let the next selector catch block handle logging
+      if ($titleLink.length) {
+        let title = $titleLink.find('.wgl-title').text().trim();
+        if (!title) title = $titleLink.text().trim();
+        
+        const url = $titleLink.attr('href') || '';
+        const snippet = $element.find('.description').text().trim();
+
+        if (title && url && url.startsWith('http')) {
+          results.push({
+            title,
+            url,
+            description: snippet || 'No description available',
+            fullContent: '',
+            contentPreview: '',
+            wordCount: 0,
+            timestamp,
+            fetchStatus: 'success'
+          });
         }
       }
+    });
 
-      try {
-        await page.waitForSelector('[data-type="web"]', { timeout: 3000 });
-      } catch {
-        console.log(`[SearchEngine] Browser Brave results selector not found, proceeding anyway`);
-      }
-      const html = await page.content();
-      console.log(`[SearchEngine] Browser Brave got HTML with length: ${html.length}`);
-      const results = this.parseBraveResults(html, numResults);
-      if (results.length === 0) {
-        const pageTitle = await page.title().catch(() => 'unknown');
-        console.log(`[SearchEngine] Brave Debug: Page title is "${pageTitle}"`);
-      }
-      console.log(`[SearchEngine] Browser Brave parsed ${results.length} results`);
-      return results;
-    } catch (error) {
-      console.error(`[SearchEngine] Browser Brave search failed:`, error);
-      throw error;
-    } finally {
-      if (context) {
-        await context.close().catch((e: any) => console.error(`[SearchEngine] Error closing context:`, e));
-      }
-    }
+    return results;
   }
 
   private async tryBrowserBingSearch(query: string, numResults: number, timeout: number): Promise<SearchResult[]> {
@@ -410,41 +430,6 @@ export class SearchEngine {
     }
   }
 
-  private parseBraveResults(html: string, maxResults: number): SearchResult[] {
-    const $ = cheerio.load(html);
-    const results: SearchResult[] = [];
-    const timestamp = generateTimestamp();
-    const resultSelectors = ['[data-type="web"]', '.result', '.fdb'];
-    for (const selector of resultSelectors) {
-      if (results.length >= maxResults) break;
-      const elements = $(selector);
-      elements.each((_index, element) => {
-        if (results.length >= maxResults) return false;
-        const $element = $(element);
-        const titleSelectors = ['.title a', 'h2 a', '.result-title a', 'a[href*="://"]'];
-        let title = '';
-        let url = '';
-        for (const titleSelector of titleSelectors) {
-          const $titleElement = $element.find(titleSelector).first();
-          if ($titleElement.length) {
-            title = $titleElement.text().trim();
-            url = $titleElement.attr('href') || '';
-            if (title && url && url.startsWith('http')) break;
-          }
-        }
-        const snippet = $element.find('.snippet-content, .snippet, .description, p').first().text().trim();
-        if (title && url && url.startsWith('http')) {
-          results.push({
-            title,
-            url: this.cleanBraveUrl(url),
-            description: snippet || 'No description available',
-            fullContent: '', contentPreview: '', wordCount: 0, timestamp, fetchStatus: 'success',
-          });
-        }
-      });
-    }
-    return results;
-  }
 
   private parseBingResults(html: string, maxResults: number): SearchResult[] {
     const $ = cheerio.load(html);
