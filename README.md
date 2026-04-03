@@ -19,7 +19,7 @@ Built with **Playwright**, it achieves full feature parity with the original `bm
 - **📑 Enhanced Scraper**: Uses Playwright and Cheerio to extract clean, readable text from even the most complex JavaScript-heavy websites.
 - **📊 Shared Browser Pool**: High-performance instance management that minimizes memory spikes and maximizes speed.
 - **⚙️ Integrated UI**: Professional settings drawer in the Extensions menu with a "Manage Tools" popup for real-time configuration.
-- **📦 Pre-built Installation**: Support for a one-click ZIP release that matches the SillyTavern plugin structure.
+- **📦 v1.3.3 Hardened Release**: Major security and architectural overhaul (v1.3.3) addressing SSRF/XSS vulnerabilities, modularizing the search engine, and introducing automated Vitest suites for production reliability.
 
 ---
 
@@ -28,7 +28,7 @@ Built with **Playwright**, it achieves full feature parity with the original `bm
 This project consists of two parts: a **Server Plugin** (Backend) and a **UI Extension** (Frontend).
 
 ### 1. Pre-built Release (Recommended)
-The easiest way to install or update is to use the **SillyTavern-MCP-Local-Search-v1.3.2.zip** release:
+The easiest way to install or update is to use the **SillyTavern-MCP-Local-Search-v1.3.3.zip** release:
 1. Download the latest `.zip` release.
 2. Extract the contents directly into your **SillyTavern root** directory.
 3. The folders will automatically merge into the correct `plugins/` and `public/` directories.

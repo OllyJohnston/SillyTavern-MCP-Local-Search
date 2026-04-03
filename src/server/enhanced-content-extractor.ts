@@ -1,8 +1,10 @@
-import axios, { CancelTokenSource } from 'axios';
+import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ContentExtractionOptions, SearchResult, ServerConfig } from './types.js';
 import { cleanText, getWordCount, getContentPreview, generateTimestamp, isPdfUrl } from './utils.js';
 import { BrowserPool } from './browser-pool.js';
+import { isValidUrl, sanitizeContent } from './security.js';
+import * as Constants from './constants.js';
 
 export class EnhancedContentExtractor {
   private readonly defaultTimeout: number;
@@ -13,16 +15,22 @@ export class EnhancedContentExtractor {
 
   constructor(config: ServerConfig, browserPool: BrowserPool) {
     this.config = config;
-    this.defaultTimeout = config.defaultTimeout;
+    this.defaultTimeout = config.defaultTimeout || Constants.TIMEOUT_EXTRACTION_DEFAULT;
     this.maxContentLength = config.maxContentLength;
     this.browserPool = browserPool;
     this.fallbackThreshold = config.browserFallbackThreshold;
-    console.log(`[EnhancedContentExtractor] Configuration: timeout=${this.defaultTimeout}, maxContentLength=${this.maxContentLength}, fallbackThreshold=${this.fallbackThreshold}`);
+    console.log(`${Constants.LOG_PREFIX} [EnhancedContentExtractor] Configuration: timeout=${this.defaultTimeout}, maxContentLength=${this.maxContentLength}, fallbackThreshold=${this.fallbackThreshold}`);
   }
 
   async extractContent(options: ContentExtractionOptions): Promise<string> {
     const { url } = options;
-    console.log(`[EnhancedContentExtractor] Starting extraction for: ${url}`);
+    
+    // Check if the URL is valid and safe first
+    if (!isValidUrl(url)) {
+      throw new Error(`Rejected unsafe or malformed URL: ${url}`, { cause: 'Security Violation' });
+    }
+    
+    console.log(`${Constants.LOG_PREFIX} [EnhancedContentExtractor] Starting extraction for: ${url}`);
     try {
       const content = await this.extractWithAxios(options);
       console.log(`[EnhancedContentExtractor] Successfully extracted with axios: ${content.length} chars`);
@@ -37,7 +45,7 @@ export class EnhancedContentExtractor {
           return content;
         } catch (browserError) {
           console.error(`[EnhancedContentExtractor] Browser extraction also failed:`, browserError);
-          throw new Error(`Both axios and browser extraction failed for ${url}`);
+          throw new Error(`Both axios and browser extraction failed for ${url}`, { cause: browserError });
         }
       } else {
         throw error;
@@ -113,17 +121,22 @@ export class EnhancedContentExtractor {
       throw error;
     } finally {
       if (context) {
-        await context.close().catch((e: any) => console.error(`[BrowserExtractor] Error closing context:`, e));
+        // Finding #5: Propagate critical context closing errors if necessary
+        await context.close().catch((err: unknown) => {
+          console.error(`[BrowserExtractor] CRITICAL: Error closing context:`, err);
+        });
       }
     }
   }
 
-  private shouldUseBrowser(error: any, url: string): boolean {
+  private shouldUseBrowser(error: unknown, url: string): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const err = error as any;
     const indicators = [
-      error.response?.status === 403,
-      error.response?.status === 429,
-      error.message?.includes('timeout'),
-      error.message?.includes('Low quality content'),
+      err.response?.status === 403,
+      err.response?.status === 429,
+      err.message?.includes('timeout'),
+      err.message?.includes('Low quality content'),
       url.includes('reddit.com'),
       url.includes('twitter.com')
     ];
@@ -151,6 +164,7 @@ export class EnhancedContentExtractor {
     const extractionPromises = resultsToProcess.map(async (result): Promise<SearchResult> => {
       const EXTRACTION_TIMEOUT = 8000;
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let contextToKill: any = null;
 
       try {
@@ -163,7 +177,7 @@ export class EnhancedContentExtractor {
               settled = true;
               // Forcefully close any browser context that may be running
               if (contextToKill) {
-                contextToKill.close().catch(() => {});
+                contextToKill.close().catch(() => { /* ignore */ });
                 contextToKill = null;
               }
               reject(new Error('Extraction timeout'));
@@ -179,11 +193,11 @@ export class EnhancedContentExtractor {
                 resolve(content);
               }
             })
-            .catch((err) => {
+            .catch((_err) => {
               if (!settled) {
                 settled = true;
                 if (timeoutHandle) clearTimeout(timeoutHandle);
-                reject(err);
+                reject(_err);
               }
             });
         });
@@ -217,11 +231,14 @@ export class EnhancedContentExtractor {
   private parseContent(html: string): string {
     const $ = cheerio.load(html);
     $('script, style, nav, header, footer').remove();
-    let mainContent = $('article, main, .content, .post-content, body').first().text().trim();
+    const mainContent = $('article, main, .content, .post-content, body').first().text().trim();
     return this.cleanTextContent(mainContent);
   }
 
   private cleanTextContent(text: string): string {
-    return text.replace(/\s+/g, ' ').trim();
+    // Phase 1 Security: Sanitize text with DOMPurify
+    const sanitized = sanitizeContent(text);
+    const mainContent = sanitized.replace(/\s+/g, ' ').trim();
+    return mainContent;
   }
 }

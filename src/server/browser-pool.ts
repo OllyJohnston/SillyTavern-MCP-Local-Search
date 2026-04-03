@@ -61,9 +61,7 @@ export class BrowserPool {
       this.browsers.delete(browserType);
       try {
         await browser.close();
-      } catch (closeError) {
-        // Already disconnected, ignore
-      }
+      } catch { /* ignore */ }
     }
 
     // Finding #1: Prevent thundering herd — if a launch is already in-flight
@@ -129,7 +127,7 @@ export class BrowserPool {
         const oldBrowser = this.browsers.get(browserType)!;
         try {
           await oldBrowser.close();
-        } catch (_e) {
+        } catch {
           // Already closed, ignore
         }
       }
@@ -142,8 +140,8 @@ export class BrowserPool {
         if (oldestBrowser) {
           try {
             await oldestBrowser[1].close();
-          } catch (error) {
-            console.error(`[BrowserPool] Error closing old browser:`, error);
+          } catch {
+            console.error(`[BrowserPool] Error closing old browser`);
           }
           this.browsers.delete(oldestBrowser[0]);
         }
@@ -160,8 +158,8 @@ export class BrowserPool {
     console.log(`[BrowserPool] Closing ${this.browsers.size} browsers`);
     
     const closePromises = Array.from(this.browsers.values()).map(browser => 
-      browser.close().catch((error: any) => 
-        console.error('Error closing browser:', error)
+      browser.close().catch((err: unknown) => 
+        console.error('Error closing browser:', err)
       )
     );
     
