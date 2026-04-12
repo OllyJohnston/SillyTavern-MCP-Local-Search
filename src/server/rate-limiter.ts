@@ -13,10 +13,10 @@ export class RateLimiter {
 
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     const now = Date.now();
-    
+
     // Clean up older timestamps outside the rolling window
-    this.requestTimestamps = this.requestTimestamps.filter(t => now - t < this.windowIntervalMs);
-    
+    this.requestTimestamps = this.requestTimestamps.filter((t) => now - t < this.windowIntervalMs);
+
     // Check rate limit
     if (this.requestTimestamps.length >= this.maxRequestsPerMinute) {
       const oldestTimestamp = this.requestTimestamps[0];
@@ -36,8 +36,8 @@ export class RateLimiter {
 
   getStatus(): { requestCount: number; maxRequests: number; waitTimeMs: number } {
     const now = Date.now();
-    this.requestTimestamps = this.requestTimestamps.filter(t => now - t < this.windowIntervalMs);
-    
+    this.requestTimestamps = this.requestTimestamps.filter((t) => now - t < this.windowIntervalMs);
+
     let waitTimeMs = 0;
     if (this.requestTimestamps.length >= this.maxRequestsPerMinute) {
       const oldestTimestamp = this.requestTimestamps[0];
@@ -50,4 +50,4 @@ export class RateLimiter {
       waitTimeMs: Math.max(0, waitTimeMs),
     };
   }
-} 
+}

@@ -11,7 +11,10 @@ export function cleanText(text: string, maxLength: number = 10000): string {
 }
 
 export function getWordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0).length;
 }
 
 export function getContentPreview(text: string, maxLength: number = 500): string {
@@ -47,7 +50,7 @@ export function getRandomUserAgent(): string {
 }
 
 export function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function isPdfUrl(url: string): boolean {
@@ -58,4 +61,4 @@ export function isPdfUrl(url: string): boolean {
     // If URL parsing fails, check the raw string as fallback
     return url.toLowerCase().endsWith('.pdf');
   }
-} 
+}

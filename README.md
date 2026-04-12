@@ -16,10 +16,11 @@ Built with **Playwright**, it achieves full feature parity with the original `bm
 - **🧭 Multi-Engine Support**: Seamlessly orchestrates **Bing**, **DuckDuckGo**, and **Startpage** for the most reliable, high-relevance results.
 - **⚡ Ultra-High Quality Exit**: Automatically stops searching as soon as 100% relevance is achieved, saving time and API resources.
 - **🎯 Dynamic Waterfall**: You can now choose your preferred engine in the UI, and the search waterfall will dynamically prioritize it.
-- **📑 Enhanced Scraper**: Uses Playwright and Cheerio to extract clean, readable text from even the most complex JavaScript-heavy websites.
+- **📑 Enhanced Scraper**: Uses a multi-phase waterfall (Axios -> Playwright) to extract clean, readable text from even the most complex websites.
 - **📊 Shared Browser Pool**: High-performance instance management that minimizes memory spikes and maximizes speed.
 - **⚙️ Integrated UI**: Professional settings drawer in the Extensions menu with a "Manage Tools" popup for real-time configuration.
-- **📦 v1.3.3 Hardened Release**: Major security and architectural overhaul (v1.3.3) addressing SSRF/XSS vulnerabilities, modularizing the search engine, and introducing automated Vitest suites for production reliability.
+- **📦 v1.4.0 "Modular & Observable" Release**: Major architectural overhaul introducing **Dependency Injection**, **Strategy-based engine decoupling**, and **Structured Pino Logging**.
+- **🛡️ Hardened Security (v1.4.0)**: Professional-grade protection featuring **DNS-level SSRF validation** (blocks private/reserved IPs) and configurable **Domain Allowlists**.
 
 ---
 
@@ -28,7 +29,7 @@ Built with **Playwright**, it achieves full feature parity with the original `bm
 This project consists of two parts: a **Server Plugin** (Backend) and a **UI Extension** (Frontend).
 
 ### 1. Pre-built Release (Recommended)
-The easiest way to install or update is to use the **SillyTavern-MCP-Local-Search-v1.3.3.zip** release:
+The easiest way to install or update is to use the **SillyTavern-MCP-Local-Search-v1.4.0.zip** release:
 1. Download the latest `.zip` release.
 2. Extract the contents directly into your **SillyTavern root** directory.
 3. The folders will automatically merge into the correct `plugins/` and `public/` directories.
@@ -159,6 +160,8 @@ The extension is designed to be a "good citizen" on your system:
 - **💨 2-Minute Idle Timeout**: Browsers automatically shut down after 120 seconds of inactivity to free up RAM. They will automatically relaunch on your next search.
 - **🛡️ Shutdown Guards**: Standard process signals (SIGINT/SIGTERM) are handled to ensure no orphaned Chromium processes are left running if SillyTavern is closed.
 - **🏊 Shared Browser Pool**: Multiple engines share the same browser instance to minimize startup latency and memory overhead.
+- **📊 Structured Logging**: Integrated `pino` for production-grade telemetry. Automatic `pino-pretty` formatting ensures logs are ultra-readable in the SillyTavern console.
+- **🛡️ DNS-Level Protection**: v1.4.0 validates the underlying IP of every URL before network interaction, blocking attempts to reach private network segments or reserved IP ranges.
 
 ---
 

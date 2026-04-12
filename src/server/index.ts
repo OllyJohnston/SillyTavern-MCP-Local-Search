@@ -1,27 +1,31 @@
 import { Router, Request, Response, json } from 'express';
 import { BrowserPool } from './browser-pool.js';
-import { SearchEngine } from './search-engine.js';
-import { EnhancedContentExtractor } from './enhanced-content-extractor.js';
+import { SearchOrchestrator } from './search/orchestrator.js';
+import { ExtractionOrchestrator } from './extraction/orchestrator.js';
 import { ServerConfig } from './types.js';
+import { Logger } from './logger.js';
 
 /**
  * Plugin Container to manage instance lifecycle and avoid global state
  */
 class PluginContainer {
   public browserPool: BrowserPool;
-  public searchEngine: SearchEngine;
-  public contentExtractor: EnhancedContentExtractor;
+  public searchEngine: SearchOrchestrator;
+  public contentExtractor: ExtractionOrchestrator;
   public config: ServerConfig;
+  public logger: Logger;
 
   constructor(config: ServerConfig) {
     this.config = config;
+    this.logger = new Logger();
     this.browserPool = new BrowserPool(config);
-    this.searchEngine = new SearchEngine(config, this.browserPool);
-    this.contentExtractor = new EnhancedContentExtractor(config, this.browserPool);
+    this.searchEngine = new SearchOrchestrator(config, this.browserPool, this.logger);
+    this.contentExtractor = new ExtractionOrchestrator(config, this.browserPool, this.logger);
+    this.logger.info('PluginContainer initialized with modular orchestrators.');
   }
 
   async shutdown() {
-    console.log('[MCPLocalSearch] Shutting down plugin container...');
+    this.logger.info('Shutting down plugin container...');
     await this.browserPool.closeAll();
   }
 }
@@ -47,7 +51,9 @@ const defaultConfig: ServerConfig = {
  * SillyTavern Server Plugin Initialization
  */
 export async function init(router: Router) {
-  console.log('[MCPLocalSearch] Initializing SillyTavern MCP Local Search Plugin v1.3.3...');
+  // We need a temporary logger before the container is ready
+  const bootLogger = new Logger();
+  bootLogger.info('Initializing SillyTavern MCP Local Search Plugin v1.4.0...');
 
   // Initialize Container (handles all core logic instances)
   if (container) {
@@ -59,22 +65,26 @@ export async function init(router: Router) {
 
   // API Endpoints
   router.get('/status', (req: Request, res: Response) => {
-    res.json({ status: 'running', engine: 'integrated', version: '1.3.3' });
+    res.json({ status: 'running', engine: 'integrated', version: '1.4.0' });
   });
 
   router.post('/search', jsonParser, async (req: Request, res: Response) => {
     try {
-      const { query, limit = 5, options = {} } = req.body as { query: string, limit?: number, options?: any };
+      const {
+        query,
+        limit = 5,
+        options = {},
+      } = req.body as unknown as { query: string; limit?: number; options?: any };
       if (!query) return res.status(400).json({ error: 'Query is required' });
-      
+
       console.log(`[MCPLocalSearch] Received search request: "${query}" (limit: ${limit})`);
-      
-      const results = await container!.searchEngine.search({ 
-        query, 
+
+      const results = await container!.searchEngine.search({
+        query,
         numResults: limit,
-        ...options 
+        ...options,
       });
-      
+
       res.json(results);
     } catch (_error: unknown) {
       const message = _error instanceof Error ? _error.message : 'Unknown search error';
@@ -85,35 +95,35 @@ export async function init(router: Router) {
 
   router.post('/extract', jsonParser, async (req: Request, res: Response) => {
     try {
-      const { url, options = {} } = req.body;
+      const { url, options = {} } = req.body as unknown as { url: string; options?: any };
       if (!url) return res.status(400).json({ error: 'URL is required' });
-      
+
       console.log(`[MCPLocalSearch] Received extraction request for: ${url}`);
-      
-      const content = await container!.contentExtractor.extractContent({ 
+
+      const content = await container!.contentExtractor.extract({
         url,
-        ...options
+        ...options,
       });
-      
+
       res.json({ content });
     } catch (_error: unknown) {
       const message = _error instanceof Error ? _error.message : 'Unknown extraction error';
-      console.error('[MCPLocalSearch] Extraction error:', message);
+      container!.logger.error('Extraction error:', { error: message });
       res.status(500).json({ error: message });
     }
   });
 
   console.log('[MCPLocalSearch] Plugin endpoints registered successfully.');
-  
+
   // Register process signal handlers for clean exit
   process.on('SIGINT', async () => {
-    console.log('[MCPLocalSearch] Received SIGINT (Ctrl+C), performing clean shutdown...');
+    bootLogger.info('Received SIGINT (Ctrl+C), performing clean shutdown...');
     await exit();
     process.exit(0);
   });
-  
+
   process.on('SIGTERM', async () => {
-    console.log('[MCPLocalSearch] Received SIGTERM (shutdown), performing clean shutdown...');
+    bootLogger.info('Received SIGTERM (shutdown), performing clean shutdown...');
     await exit();
     process.exit(0);
   });
@@ -138,5 +148,5 @@ export const info = {
   name: 'MCP Local Search',
   description: 'Native high-quality local search and scraping using Playwright.',
   author: 'Olly Johnston',
-  version: '1.3.3',
+  version: '1.4.0',
 };

@@ -1,6 +1,16 @@
 import { chromium, firefox, webkit, Browser } from 'playwright';
 import { ServerConfig } from './types.js';
+import { Logger } from './logger.js';
 
+/**
+ * BrowserPool
+ * Manages a rotating pool of headless browser instances (Playwright).
+ * Features:
+ * - Multi-engine rotation (Chromium, Firefox, WebKit).
+ * - Thundering-herd prevention via concurrent launch tracking.
+ * - Automatic idle-process release to save memory.
+ * - Connection-based health checks.
+ */
 export class BrowserPool {
   private browsers: Map<string, Browser> = new Map();
   private launchPromises: Map<string, Promise<Browser>> = new Map();
@@ -10,15 +20,27 @@ export class BrowserPool {
   private headless: boolean;
   private lastUsedBrowserType: string = '';
   private config: ServerConfig;
+  private logger: Logger;
 
+  /**
+   * Initializes the browser pool with server configuration.
+   * @param config The global server configuration.
+   */
   constructor(config: ServerConfig) {
     this.config = config;
     this.maxBrowsers = config.maxBrowsers;
     this.headless = config.browserHeadless;
     this.browserTypes = config.browserTypes;
-    
-    console.log(`[BrowserPool] Configuration: maxBrowsers=${this.maxBrowsers}, headless=${this.headless}, types=${this.browserTypes.join(',')}, noSandbox=${this.config.playwrightNoSandbox}`);
-    
+    this.logger = new Logger('BrowserPool');
+
+    this.logger.info(
+      'Configuration: maxBrowsers={}, headless={}, types={}, noSandbox={}',
+      this.maxBrowsers,
+      this.headless,
+      this.browserTypes.join(','),
+      this.config.playwrightNoSandbox,
+    );
+
     // Start initial idle timer
     this.resetIdleTimer();
   }
@@ -32,16 +54,21 @@ export class BrowserPool {
     }
     this.idleTimer = setTimeout(async () => {
       if (this.browsers.size > 0) {
-        console.log(`[BrowserPool] Idle limit reached (2m), releasing browser processes to free memory`);
+        this.logger.info('Idle limit reached (2m), releasing browser processes to free memory');
         await this.closeAll();
       }
     }, this.IDLE_TIMEOUT_MS);
   }
 
+  /**
+   * Acquires a healthy browser instance from the pool.
+   * Rotates between configured browser types and launches new ones if needed.
+   * @returns A Promise resolving to a Playwright Browser instance.
+   */
   async getBrowser(): Promise<Browser> {
     // Activity detected, reset the idle timer
     this.resetIdleTimer();
-    
+
     // Rotate between browser types for variety
     const browserType = this.browserTypes[this.currentBrowserIndex % this.browserTypes.length];
     this.currentBrowserIndex++;
@@ -50,7 +77,7 @@ export class BrowserPool {
     // Check if we already have a healthy cached browser
     if (this.browsers.has(browserType)) {
       const browser = this.browsers.get(browserType)!;
-      
+
       // Finding #4: Use isConnected() only — no context-based health check
       if (browser.isConnected()) {
         return browser;
@@ -61,7 +88,9 @@ export class BrowserPool {
       this.browsers.delete(browserType);
       try {
         await browser.close();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     // Finding #1: Prevent thundering herd — if a launch is already in-flight
@@ -73,7 +102,7 @@ export class BrowserPool {
 
     // Launch new browser and register the promise to prevent concurrent duplicates
     console.log(`[BrowserPool] Launching new ${browserType} browser`);
-    
+
     const launchPromise = this.launchBrowser(browserType);
     this.launchPromises.set(browserType, launchPromise);
 
@@ -133,7 +162,7 @@ export class BrowserPool {
       }
 
       this.browsers.set(browserType, browser);
-      
+
       // Clean up old browsers if we have too many
       if (this.browsers.size > this.maxBrowsers) {
         const oldestBrowser = this.browsers.entries().next().value;
@@ -149,20 +178,22 @@ export class BrowserPool {
 
       return browser;
     } catch (error) {
-      console.error(`[BrowserPool] Failed to launch ${browserType} browser:`, error);
+      this.logger.error('Failed to launch {} browser:', browserType, { error });
       throw error;
     }
   }
 
+  /**
+   * Closes all active browser processes and clears the pool.
+   * Should be called during plugin shutdown.
+   */
   async closeAll(): Promise<void> {
-    console.log(`[BrowserPool] Closing ${this.browsers.size} browsers`);
-    
-    const closePromises = Array.from(this.browsers.values()).map(browser => 
-      browser.close().catch((err: unknown) => 
-        console.error('Error closing browser:', err)
-      )
+    this.logger.info('Closing {} browsers', this.browsers.size);
+
+    const closePromises = Array.from(this.browsers.values()).map((browser) =>
+      browser.close().catch((err: unknown) => console.error('Error closing browser:', err)),
     );
-    
+
     await Promise.all(closePromises);
     this.browsers.clear();
     this.launchPromises.clear();

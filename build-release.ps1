@@ -28,10 +28,10 @@ if (Test-Path $tempDir) { Remove-Item -Recurse -Force $tempDir }
 New-Item -ItemType Directory -Path "$tempDir\plugins\mcp-local-search" | Out-Null
 New-Item -ItemType Directory -Path "$tempDir\public\scripts\extensions\third-party\mcp-local-search" | Out-Null
 
-# 4. Copy Server Files (Flattened like the live plugin)
+# 4. Copy Server Files (Preserve modular structure)
 Write-Host "📂 Packaging server files..."
-# Copy compiled JS directly to the plugin root (flattens the dist/server structure)
-Copy-Item -Path "dist/server/*.js" -Destination "$tempDir\plugins\mcp-local-search" -Force
+# Copy the entire server directory to preserve modular sub-folders (search, extraction, etc.)
+Get-ChildItem -Path "dist/server/*" -Recurse | Copy-Item -Destination "$tempDir\plugins\mcp-local-search" -Recurse -Force
 # Copy metadata files
 Copy-Item -Path "package.json", "README.md", "LICENSE" -Destination "$tempDir\plugins\mcp-local-search" -ErrorAction SilentlyContinue -Force
 

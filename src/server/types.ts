@@ -95,4 +95,6 @@ export interface ServerConfig {
   debugBrowserLifecycle: boolean;
   debugBingSearch: boolean;
   playwrightNoSandbox: boolean;
+  allowedDomains?: string[];
+  blockedDomains?: string[];
 }

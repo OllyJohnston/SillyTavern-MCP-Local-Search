@@ -58,7 +58,7 @@ describe('SearchParsers', () => {
       expect(results[0].title).toBe('DDG Result');
       expect(results[0].url).toBe('https://example.com');
     });
-    
+
     it('should handle DDG redirect URLs correctly', () => {
       const html = `
         <div class="result">

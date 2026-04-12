@@ -7,9 +7,9 @@ export const LOG_PREFIX = '[MCPLocalSearch]';
  * Quality & Relevance Thresholds
  */
 export const QUALITY_THRESHOLD_PERFECT = 0.95;
-export const QUALITY_THRESHOLD_EXCELLENT = 0.80;
-export const QUALITY_THRESHOLD_GOOD = 0.50;
-export const QUALITY_THRESHOLD_MINIMAL = 0.10;
+export const QUALITY_THRESHOLD_EXCELLENT = 0.8;
+export const QUALITY_THRESHOLD_GOOD = 0.5;
+export const QUALITY_THRESHOLD_MINIMAL = 0.1;
 
 /**
  * Timeout Constants (ms)

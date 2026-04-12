@@ -46,7 +46,7 @@ describe('Security Utilities', () => {
 
     it('should remove script tags and their content', () => {
       const dirty = '<div>Safe<script>alert("XSS")</script></div>';
-      // DOMPurify with ALLOWED_TAGS: [] strips the tags and script content depending on config, 
+      // DOMPurify with ALLOWED_TAGS: [] strips the tags and script content depending on config,
       // but by default it strips the script tag itself.
       expect(sanitizeContent(dirty)).toBe('Safe');
     });
