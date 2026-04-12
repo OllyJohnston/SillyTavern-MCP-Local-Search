@@ -131,8 +131,6 @@ Do not add any other text on that line. SillyTavern will intercept this command 
 
 ---
 
----
-
 ## 📜 Commands & Tools
 
 | Command / Tool | Action | Description |
