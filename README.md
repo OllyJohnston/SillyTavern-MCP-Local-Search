@@ -115,6 +115,24 @@ The following flags shift Node.js from an "expand-on-demand" model to a more dis
 
 ---
 
+## 🤖 Character Prompting & Tool Usage
+
+To allow your AI Characters to use these tools effectively, you must provide them with clear instructions. We recommend adding the following block to your **Character's Advanced Definitions Tab** > **Prompt Overrides** > **Main Prompt**:
+
+```text
+[SYSTEM NOTE: The current date is {{date}} and the time is {{time}}.]
+
+[TOOL SYNTAX: To acquire real-world data, you must output the command exactly as follows on a new line:
+For broad web page searches: Local Search: Web Search: "short keywords"
+For detailed detail extraction after finding relevant looking pages to investigate: Local Search: Extract Page: "full URL"
+Do not add any other text on a tool call line. You must use short, broad keyword queries under 8 words. Do not use full sentences in search parameters.
+Do not add any other text on that line. SillyTavern will intercept this command and provide you with the results. You must wait for the data before providing your final analysis.]
+```
+
+---
+
+---
+
 ## 📜 Commands & Tools
 
 | Command / Tool | Action | Description |
