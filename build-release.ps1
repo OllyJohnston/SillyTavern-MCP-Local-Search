@@ -30,10 +30,27 @@ New-Item -ItemType Directory -Path "$tempDir\public\scripts\extensions\third-par
 
 # 4. Copy Server Files (Preserve modular structure)
 Write-Host "📂 Packaging server files..."
-# Copy the entire server directory to preserve modular sub-folders (search, extraction, etc.)
 Get-ChildItem -Path "dist/server/*" -Recurse | Copy-Item -Destination "$tempDir\plugins\mcp-local-search" -Recurse -Force
+
+# Create a clean production-only package.json
+Write-Host "📜 Creating production package.json..."
+$prodPackage = [PSCustomObject]@{
+    name        = $package.name
+    version     = $package.version
+    description = $package.description
+    main        = $package.main
+    type        = $package.type
+    author      = $package.author
+    license     = $package.license
+    dependencies = $package.dependencies
+    scripts     = [PSCustomObject]@{
+        prepare = "playwright install chromium"
+    }
+}
+$prodPackage | ConvertTo-Json -Depth 10 | Set-Content -Path "$tempDir\plugins\mcp-local-search\package.json"
+
 # Copy metadata files
-Copy-Item -Path "package.json", "README.md", "LICENSE" -Destination "$tempDir\plugins\mcp-local-search" -ErrorAction SilentlyContinue -Force
+Copy-Item -Path "README.md", "LICENSE" -Destination "$tempDir\plugins\mcp-local-search" -ErrorAction SilentlyContinue -Force
 
 # 5. Copy Client Files
 Write-Host "📂 Packaging client files..."
